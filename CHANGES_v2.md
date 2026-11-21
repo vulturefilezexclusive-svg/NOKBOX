@@ -43,6 +43,13 @@ Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://gith
      full player opens the EQ as a bottom sheet (showEqBottomSheet) without touching playback.
    Files: lib/audio/eq.dart, lib/audio/mpv_filters.dart, lib/audio/equalizer_controller.dart,
    lib/ui/settings/equalizer_screen.dart, lib/ui/player/mini_player.dart, lib/ui/player/full_player.dart
+8. Animated splash (beating speaker + glowing NOKBOX)
+   - New lib/ui/splash_screen.dart: 900 ms beat cycle (quick thump, settle, rest) pulses the
+     boombox brand art (assets/branding/splash.png) with a red glow, and the NOKBOX wordmark
+     glows in time; tagline "A MUZIK JUNKIE PARADISE" below. Shows 1.8 s on every cold start,
+     then swaps to RootShell via a _SplashGate in app.dart. Pure UI — audio init and Diag hooks
+     in main.dart are untouched, native splash config unchanged.
+   Files: lib/ui/splash_screen.dart, lib/ui/app.dart
 
 == STILL TO DO (in order) — see HANDOFF.md ==
 a. Navigation: Home tab -> show FeedScreen (YouTube feed + "Source" switch button); 4th tab "Feed" -> "Playlists"
@@ -54,7 +61,6 @@ b. Settings > YouTube account screen: WebView to https://accounts.google.com/Ser
    (Google may block embedded login; fallback = paste cookies / import Takeout subscriptions.)
 c. Settings > Diagnostics tile: "Export diagnostic" -> SharePlus.instance.share(ShareParams(files:[XFile((await Diag.exportBundle()).path)])); "Clear" -> Diag.clear().
    Call Diag.cleanExit() on AppLifecycleState.detached in root_shell.dart.
-e. Animated splash: new lib/ui/splash_screen.dart (AnimationController pulsing speaker icon + glowing NOKBOX text, 1.8 s) shown before RootShell in app.dart.
 f. Background/lock screen: Info.plist already has UIBackgroundModes=audio; add AudioSession.instance configure(AudioSessionConfiguration.music()) in main.dart; audio_service handler already wired (lib/audio/audio_handler.dart). Test on device.
 
 == HOW TO PROCEED ==

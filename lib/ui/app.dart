@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../app_globals.dart';
 import '../core/theme/theme_controller.dart';
 import 'root_shell.dart';
+import 'splash_screen.dart';
 
 class NokboxApp extends StatelessWidget {
   const NokboxApp({super.key});
@@ -27,9 +28,35 @@ class NokboxApp extends StatelessWidget {
           title: 'NOKBOX',
           debugShowCheckedModeBanner: false,
           theme: theme.theme,
-          home: const RootShell(),
+          home: const _SplashGate(),
         ),
       ),
     );
+  }
+}
+
+/// Shows the animated splash on every cold start, then swaps to the
+/// normal shell. Pure UI gate — it does not delay or touch audio init,
+/// which already happened in main.dart before runApp.
+class _SplashGate extends StatefulWidget {
+  const _SplashGate();
+
+  @override
+  State<_SplashGate> createState() => _SplashGateState();
+}
+
+class _SplashGateState extends State<_SplashGate> {
+  bool _showSplash = true;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_showSplash) {
+      return SplashScreen(
+        onDone: () {
+          if (mounted) setState(() => _showSplash = false);
+        },
+      );
+    }
+    return const RootShell();
   }
 }
