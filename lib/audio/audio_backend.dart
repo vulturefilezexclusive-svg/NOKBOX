@@ -23,6 +23,11 @@ abstract class AudioBackend {
   /// Fires when the gapless pre-queued item became the active one.
   Stream<void> get advancedToNextStream;
 
+  /// Fires when mpv rejected the active audio filter chain *while playing*.
+  /// The backend has already cleared the filters so sound comes back; the
+  /// equalizer uses this to stop re-applying a chain this build cannot run.
+  Stream<void> get filterFailureStream;
+
   bool get playing;
   Duration get position;
   Duration get duration;
@@ -39,8 +44,19 @@ abstract class AudioBackend {
   Future<void> setSpeed(double s);
   Future<void> setPitch(double p);
 
-  /// Raw mpv-style audio filter chain; '' disables.
-  Future<void> setAudioFilter(String af);
+  /// Applies a raw mpv-style audio filter chain; '' disables.
+  ///
+  /// Returns the chain mpv reports back after the set (`null` when the
+  /// backend cannot be queried). mpv silently drops a filter chain it cannot
+  /// build — and with it all audio — so callers must verify this result
+  /// instead of assuming the chain took effect.
+  Future<String?> setAudioFilter(String af);
+
+  /// Chain mpv currently holds ('' when none).
+  Future<String?> getAudioFilter();
+
+  /// Reads an mpv property for diagnostics (e.g. 'ao', 'audio-device').
+  Future<String?> getOption(String name);
   Future<void> setOption(String name, String value);
   Future<void> dispose();
 }
@@ -54,8 +70,13 @@ class FakeAudioBackend implements AudioBackend {
   final _done = StreamController<void>.broadcast();
   final _err = StreamController<String>.broadcast();
   final _adv = StreamController<void>.broadcast();
+  final _filterFailed = StreamController<void>.broadcast();
   final List<String> opened = [];
   String lastFilter = '';
+
+  /// Filter names this fake "mpv build" was not built with. A chain that
+  /// mentions one is rejected, exactly like the real iOS libmpv.
+  final Set<String> unsupportedFilters = {};
   double volume = 100;
   @override
   bool playing = false;
@@ -66,6 +87,12 @@ class FakeAudioBackend implements AudioBackend {
   final Set<String> failUrls = {};
 
   void complete() => _done.add(null);
+
+  /// Simulates mpv failing to build the active chain during playback.
+  void failFilter() {
+    lastFilter = '';
+    _filterFailed.add(null);
+  }
 
   @override
   Stream<bool> get playingStream => _playing.stream;
@@ -81,6 +108,8 @@ class FakeAudioBackend implements AudioBackend {
   Stream<String> get errorStream => _err.stream;
   @override
   Stream<void> get advancedToNextStream => _adv.stream;
+  @override
+  Stream<void> get filterFailureStream => _filterFailed.stream;
 
   @override
   Future<void> open(StreamInfo s, {Duration? start, bool play = true}) async {
@@ -120,7 +149,17 @@ class FakeAudioBackend implements AudioBackend {
   @override
   Future<void> setPitch(double p) async {}
   @override
-  Future<void> setAudioFilter(String af) async => lastFilter = af;
+  Future<String?> setAudioFilter(String af) async {
+    for (final f in unsupportedFilters) {
+      if (af.contains(f)) return lastFilter = ''; // mpv keeps an empty chain
+    }
+    return lastFilter = af;
+  }
+
+  @override
+  Future<String?> getAudioFilter() async => lastFilter;
+  @override
+  Future<String?> getOption(String name) async => null;
   @override
   Future<void> setOption(String name, String value) async {}
   @override

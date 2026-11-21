@@ -18,7 +18,13 @@ class MpvEqBuilder {
   const MpvEqBuilder({this.nativeShelves = false});
   final bool nativeShelves;
 
-  String build(EqProfile p, {bool enabled = true}) {
+  /// [equalizerOnly] builds the same curve without the FX stage. The iOS /
+  /// macOS libmpv that media_kit ships is compiled with a trimmed libavfilter
+  /// (`--disable-all --enable-filter=overlay --enable-filter=equalizer`), so
+  /// aeco/extrastereo/bs2b/apulsator do not exist there and a chain that
+  /// mentions one is rejected — taking every sound with it. Playback retries
+  /// with this chain so the EQ can never silence the player.
+  String build(EqProfile p, {bool enabled = true, bool equalizerOnly = false}) {
     if (!enabled) return '';
     final parts = <String>[];
     void peak(double f, double q, double g) {
@@ -54,7 +60,7 @@ class MpvEqBuilder {
       peak(55, 0.8, p.bassBoostDb);
       peak(110, 1.2, p.bassBoostDb * 0.35);
     }
-    _appendFx(parts, p);
+    if (!equalizerOnly) _appendFx(parts, p);
     if (parts.isEmpty) return '';
     // Labelled lavfi graph so we can replace it atomically.
     return '@nokeq:lavfi=[${parts.join(',')}]';

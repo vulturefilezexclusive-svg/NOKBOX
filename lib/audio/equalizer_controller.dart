@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -14,7 +15,17 @@ import 'mpv_filters.dart';
 class EqualizerController extends ChangeNotifier {
   EqualizerController({required this.db, required this.backend, this.builder = const MpvEqBuilder()}) {
     _load();
+    _filterSub = backend.filterFailureStream.listen((_) {
+      // mpv refused the chain while a track was playing; the backend cleared
+      // it so the sound is back. Stay on the chain this build accepts.
+      final marked = !effectsUnavailable;
+      effectsUnavailable = true;
+      if (marked) notifyListeners();
+      unawaited(apply());
+    });
   }
+
+  StreamSubscription<void>? _filterSub;
 
   final NokDatabase db;
   AudioBackend backend;
@@ -64,10 +75,45 @@ class EqualizerController extends ChangeNotifier {
     }));
   }
 
-  String get filterChain => builder.build(profile, enabled: enabled && !batterySaverBypass);
+  /// True when this build's audio engine cannot run the FX stage, so the FX
+  /// are skipped to keep playback audible (the iOS/macOS libmpv that
+  /// media_kit ships only contains the `equalizer` and `overlay` filters).
+  bool effectsUnavailable = false;
 
+  bool get _active => enabled && !batterySaverBypass;
+
+  String get filterChain => builder.build(profile, enabled: _active, equalizerOnly: effectsUnavailable);
+
+  /// Applies the chain, and guarantees that a chain this mpv build cannot
+  /// build never takes the audio with it: the full chain (bands + FX) is
+  /// tried first, then the equalizer-only one, then no filter at all.
+  /// Without this, mpv drops the audio filter chain — and all sound — on the
+  /// first unsupported effect.
   Future<void> apply() async {
-    await backend.setAudioFilter(filterChain);
+    final chain = filterChain;
+    if (chain.isEmpty) {
+      await backend.setAudioFilter('');
+      return;
+    }
+    if (await _accepted(chain)) return;
+    // A chain this build cannot build must never silence playback: retry with
+    // the equalizer-only one, and if even that is refused, no filter at all.
+    final safe = builder.build(profile, enabled: _active, equalizerOnly: true);
+    final marked = !effectsUnavailable;
+    effectsUnavailable = true;
+    if (safe.isNotEmpty && safe != chain && await _accepted(safe)) {
+      if (marked) notifyListeners();
+      return;
+    }
+    await backend.setAudioFilter('');
+    if (marked) notifyListeners();
+  }
+
+  /// True when mpv kept the chain (it answers with what it built). A backend
+  /// that cannot report back is trusted rather than treated as broken.
+  Future<bool> _accepted(String chain) async {
+    final applied = await backend.setAudioFilter(chain);
+    return applied == null || applied.isNotEmpty;
   }
 
   void _changed() {
@@ -224,4 +270,10 @@ class EqualizerController extends ChangeNotifier {
   }
 
   Map<String, dynamic> exportJson() => jsonDecode(db.kvGet('eq.state') ?? '{}') as Map<String, dynamic>;
+
+  @override
+  void dispose() {
+    _filterSub?.cancel();
+    super.dispose();
+  }
 }

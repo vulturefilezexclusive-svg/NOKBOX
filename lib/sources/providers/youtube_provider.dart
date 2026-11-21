@@ -273,7 +273,13 @@ class YoutubeProvider extends SourceProvider {
           // and downloaded _bestAudio — a different, unvalidated URL that
           // googlevideo 403s.
           verified = await _verifyAudio(videoId, m, ua);
-          if (verified == null) throw Exception('stream URL rejected');
+          // Every audio-only URL was rejected. Keep the manifest when a muxed
+          // or HLS stream exists: those usually still answer, so the player
+          // can fall back to them instead of refusing the track outright
+          // (which is what made YouTube need two taps to start).
+          if (verified == null && m.muxed.isEmpty && m.hls.isEmpty) {
+            throw Exception('stream URL rejected');
+          }
         } else {
           // No separate audio: the player uses muxed (or HLS) — probe that.
           final fallback = m.muxed.isNotEmpty ? m.muxed.withHighestBitrate().url : m.hls.first.url;
@@ -353,14 +359,18 @@ class YoutubeProvider extends SourceProvider {
         return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, isVideo: true, expiresAt: exp, mime: 'video/mp4');
       }
     }
-    if (m.audioOnly.isEmpty) {
-      if (m.muxed.isNotEmpty) return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, expiresAt: exp);
-      throw Exception('No audio stream');
+    if (m.audioOnly.isEmpty || verified == null) {
+      // Nothing audio-only answered: play the muxed/HLS stream (audio only —
+      // the player keeps mpv's vid=no) rather than failing the track.
+      if (m.muxed.isNotEmpty) {
+        return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, expiresAt: exp, mime: 'video/mp4');
+      }
+      if (m.hls.isNotEmpty) return StreamInfo(m.hls.first.url.toString(), headers: headers, isVideo: true, expiresAt: exp);
+      throw Exception('No playable stream');
     }
     // Play the stream whose URL passed its probe — never an unvalidated
-    // sibling of it. (Falls back to _bestAudio only if the cache predates
-    // the probe, which cannot happen for fresh manifests.)
-    final s = verified ?? _bestAudio(m);
+    // sibling of it.
+    final s = verified;
     return StreamInfo(s.url.toString(), headers: headers, expiresAt: exp, mime: s.container == yt.StreamContainer.mp4 ? 'audio/mp4' : 'audio/webm');
   }
 
@@ -375,14 +385,16 @@ class YoutubeProvider extends SourceProvider {
     if (settings.youtubeDownloadVideo && m.muxed.isNotEmpty) {
       return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, isVideo: true, mime: 'video/mp4');
     }
-    if (m.audioOnly.isEmpty) {
+    if (m.audioOnly.isEmpty || verified == null) {
+      // No verified audio URL: download the muxed stream (a playable file)
+      // instead of guessing an unvalidated googlevideo URL that 403s and
+      // leaves a broken file in the library.
       if (m.muxed.isNotEmpty) return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, mime: 'video/mp4');
-      throw Exception('No audio stream');
+      throw Exception('No downloadable stream');
     }
-    // Download the probed candidate, not the unvalidated best-mp4 pick:
+    // Download the probed candidate, not an unvalidated sibling:
     // v0.2.0's download 403d because the manifest only probed audioOnly.first.
-    final mp4 = m.audioOnly.where((s) => s.container == yt.StreamContainer.mp4).toList()..sort((a, b) => b.bitrate.compareTo(a.bitrate));
-    final s = verified ?? (mp4.isNotEmpty ? mp4.first : _bestAudio(m));
+    final s = verified;
     return StreamInfo(s.url.toString(), headers: headers, mime: s.container == yt.StreamContainer.mp4 ? 'audio/mp4' : 'audio/webm');
   }
 }
