@@ -75,6 +75,7 @@ Map<String, Object> _scan(Map<String, Object> a) {
   Directory(artDir).createSync(recursive: true);
 
   final seen = <String>{};
+  final dropped = <String>{};
   final added = <Map<String, dynamic>>[];
   var unchanged = 0, skipped = 0;
   final folderCover = <String, String?>{};
@@ -107,12 +108,16 @@ Map<String, Object> _scan(Map<String, Object> a) {
         continue;
       }
       final mtime = st.modified.millisecondsSinceEpoch;
-      if (known[id] == mtime) {
-        unchanged++;
+      // The size is already known from the stat, so check it before the
+      // incremental shortcut: raising "minimum file size" must drop tracks
+      // indexed under a lower limit instead of keeping them forever.
+      if (st.size < minKb * 1024) {
+        dropped.add(id);
+        skipped++;
         continue;
       }
-      if (st.size < minKb * 1024) {
-        skipped++;
+      if (known[id] == mtime) {
+        unchanged++;
         continue;
       }
       final folder = p.dirname(path);
@@ -153,6 +158,7 @@ Map<String, Object> _scan(Map<String, Object> a) {
         title = parts.sublist(1).join(' - ').trim();
       }
       if (!isVideo && durationMs > 0 && durationMs < minDur * 1000) {
+        dropped.add(id);
         skipped++;
         continue;
       }
@@ -190,7 +196,9 @@ Map<String, Object> _scan(Map<String, Object> a) {
       ).toJson());
     }
   }
-  final removed = known.keys.where((k) => !seen.contains(k)).toList();
+  // Files that vanished from disk, plus files still on disk that no longer
+  // pass the filters. Filtered ids used to stay in the library forever.
+  final removed = <String>{...known.keys.where((k) => !seen.contains(k)), ...dropped}.toList();
   return {'added': added, 'removed': removed, 'unchanged': unchanged, 'skipped': skipped};
 }
 

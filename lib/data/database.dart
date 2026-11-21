@@ -264,6 +264,13 @@ class NokDatabase {
 
   int totalListenedMs() => (db.select('SELECT COALESCE(SUM(listened_ms),0) AS s FROM history').first['s'] as int);
   int playCount(String trackId) => db.select('SELECT COUNT(*) AS c FROM history WHERE track_id = ?', [trackId]).first['c'] as int;
+
+  /// Play counts for every track in one query, for sorting by "most played".
+  Map<String, int> playCounts() => {
+        for (final r in db.select('SELECT track_id, COUNT(*) AS c FROM history GROUP BY track_id'))
+          r['track_id'] as String: r['c'] as int,
+      };
+
   void clearHistory() => db.execute('DELETE FROM history');
 
   List<Map<String, Object?>> exportHistory() => [
