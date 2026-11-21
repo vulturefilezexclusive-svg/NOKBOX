@@ -46,6 +46,8 @@ class PlayQueue {
 
   void move(int from, int to) {
     if (from == to) return;
+    // Guard stale indices from the reorder UI rather than throwing.
+    if (from < 0 || from >= items.length || to < 0 || to >= items.length) return;
     final t = items.removeAt(from);
     items.insert(to, t);
     if (from == index) {
@@ -66,7 +68,7 @@ class PlayQueue {
       rest.shuffle(rng ?? Random());
       items
         ..clear()
-        ..addAll([if (cur != null) cur, ...rest]);
+        ..addAll([?cur, ...rest]);
       index = 0;
     } else if (_unshuffled != null) {
       final byId = {for (final t in items) t.id: t};
@@ -141,14 +143,19 @@ class QueueSet {
   }
 
   void delete(int i) {
+    if (i < 0 || i >= queues.length) return;
     if (queues.length == 1) {
       queues[0].items.clear();
       queues[0].index = 0;
       return;
     }
     queues.removeAt(i);
-    if (active >= queues.length) active = queues.length - 1;
+    // Stay on the same queue: shift only when the removal was before it,
+    // then clamp if the active queue itself was the one deleted. (The old
+    // order of these two checks moved the user one queue too far back.)
     if (i < active) active--;
+    if (active >= queues.length) active = queues.length - 1;
+    if (active < 0) active = 0;
   }
 
   String encode() => jsonEncode({'active': active, 'queues': [for (final q in queues) q.toJson()]});
