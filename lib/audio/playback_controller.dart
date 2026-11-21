@@ -76,6 +76,8 @@ class PlaybackController extends ChangeNotifier {
   bool videoMode = false;
   String? lastError;
   Track? switchedFrom;
+  String? _failedTrack;
+  DateTime _failedAt = DateTime.fromMillisecondsSinceEpoch(0);
   Timer? _persistDebounce;
 
   /// YouTube video ids that already got their one fresh-manifest retry for
@@ -402,9 +404,20 @@ class PlaybackController extends ChangeNotifier {
   }
 
   void _onBackendError(String e) {
+    // Audio-pipeline failures are not stream failures: mpv keeps playing
+    // (without sound) and the equalizer/backend repair the chain. Treating
+    // these as fatal would switch sources in a loop and make the track look
+    // like it never plays at all.
+    final lower = e.toLowerCase();
+    if (lower.contains('filter') || lower.contains('audio device') || lower.contains('audio output') || lower.contains('audio driver')) return;
     final t = current;
     if (t == null || _position > const Duration(seconds: 2)) return;
-    // Error before playback really started -> try another source.
+    // Error before playback really started -> try another source, but not
+    // more than once every few seconds for the same track.
+    final now = DateTime.now();
+    if (_failedTrack == t.id && now.difference(_failedAt) < const Duration(seconds: 3)) return;
+    _failedTrack = t.id;
+    _failedAt = now;
     _handleFailure(t, queue.index, e, autoplay: true, tried: {t.id});
   }
 
