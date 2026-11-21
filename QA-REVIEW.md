@@ -164,11 +164,21 @@ flutter test      -> 16 passed, 0 failed
 runs it with `--no-fatal-infos --no-fatal-warnings`, so the two informational
 deprecations do not fail the build.)
 
+### Continuous integration
+
+`.github/workflows/build-ios.yml` used to run only on pushes to `main`, tags and
+manual dispatch, so a pull request had no workflow run at all. It now also runs
+on `pull_request`. On this branch the `ios` job completed every step — Analyze,
+Unit tests, Build iOS (no codesign), Package NOKBOX.ipa, the AltStore source and
+the artifact upload — while the tag-only release step was correctly skipped by
+its condition. The unsigned `.ipa` is uploaded as the `NOKBOX-ipa-<sha>`
+artifact; the run and artifact ids are recorded in pull request #2.
+
 ## Not verified
 
-- **The iOS build itself.** Compiling an `.ipa` needs macOS + Xcode; this review
-  ran on Linux. The GitHub Actions workflow (`.github/workflows/build-ios.yml`)
-  produces the unsigned `.ipa` and runs the same analyze + test steps.
+- **A signed `.ipa`.** CI builds and uploads the unsigned `.ipa` on a macOS
+  runner. Code signing, provisioning profiles and installation were not part of
+  this pass.
 - **On-device behaviour.** The app was never run on a device, so playback,
   background/lock-screen audio, the equalizer filter chain, YouTube stream
   resolution and downloads were reviewed by reading the code, not exercised.
