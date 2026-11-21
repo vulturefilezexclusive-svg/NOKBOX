@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:material_ui/material_ui.dart';
+import 'package:audio_session/audio_session.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -17,6 +18,14 @@ Future<void> main() async {
     } catch (_) {}
     Diag.installHooks();
     MediaKit.ensureInitialized();
+    try {
+      // Playback category: keeps audio going when backgrounded / locked.
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+      await session.setActive(true);
+    } catch (e) {
+      Diag.warn('audio', 'session: $e');
+    }
     nok = await Services.init();
     Diag.info('app', 'services ready');
     runApp(const NokboxApp());

@@ -3,8 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:webview_cookie_manager_plus/webview_cookie_manager_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../core/diagnostics.dart';
 import '../../app_globals.dart';
+
 import '../../core/settings.dart';
 import '../../library/library_controller.dart';
 import '../../library/text_utils.dart';
@@ -42,6 +46,8 @@ class SettingsScreen extends StatelessWidget {
         tile(Icons.lyrics_rounded, 'Lyrics', 'LRCLIB synced lyrics, offline cache', () => const LyricsSettings()),
         tile(Icons.download_rounded, 'Downloads', 'Only where the source allows it', () => const DownloadsScreen()),
         tile(Icons.backup_rounded, 'Backup & restore', 'Documented, mergeable JSON', () => const BackupSettings()),
+        tile(Icons.account_circle_rounded, 'YouTube account', 'Sign in for your own recommendations', () => const YoutubeAccountScreen()),
+        tile(Icons.bug_report_rounded, 'Diagnostics', 'Export a report when something goes wrong', () => const DiagnosticsScreen()),
         tile(Icons.info_rounded, 'About & licenses', 'Credits, open-source notices', () => const AboutScreen()),
         const SizedBox(height: 30),
       ]),
@@ -369,4 +375,114 @@ class AboutScreen extends StatelessWidget {
       ]),
     );
   }
+}
+
+class DiagnosticsScreen extends StatelessWidget {
+  const DiagnosticsScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Diagnostics')),
+      body: ValueListenableBuilder<int>(
+        valueListenable: Diag.changes,
+        builder: (context, _, __) {
+          final reports = Diag.reports();
+          return ListView(padding: const EdgeInsets.all(16), children: [
+            Text(Diag.flagged || reports.isNotEmpty ? '${reports.length} problem report(s) saved.' : 'No problems recorded. The log clears itself while everything works.'),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              icon: const Icon(Icons.ios_share_rounded),
+              label: const Text('Export diagnostic'),
+              onPressed: () async {
+                final f = await Diag.exportBundle();
+                await SharePlus.instance.share(ShareParams(files: [XFile(f.path)], subject: 'NOKBOX diagnostics'));
+              },
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(icon: const Icon(Icons.delete_sweep_rounded), label: const Text('Clear reports'), onPressed: Diag.clear),
+            for (final r in reports) ListTile(dense: true, leading: const Icon(Icons.description_outlined), title: Text(r.uri.pathSegments.last)),
+          ]);
+        },
+      ),
+    );
+  }
+}
+
+class YoutubeAccountScreen extends StatelessWidget {
+  const YoutubeAccountScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final acc = nok.ytAccount;
+    return ListenableBuilder(
+      listenable: acc,
+      builder: (context, _) => Scaffold(
+        appBar: AppBar(title: const Text('YouTube account')),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          ListTile(
+            leading: CircleAvatar(backgroundImage: acc.avatar != null ? NetworkImage(acc.avatar!) : null, child: acc.avatar == null ? const Icon(Icons.person_rounded) : null),
+            title: Text(acc.signedIn ? (acc.name ?? 'Signed in') : 'Not signed in'),
+            subtitle: Text(acc.signedIn ? 'Home shows your YouTube recommendations and subscriptions' : 'Home shows trending + picks based on what you play'),
+          ),
+          const SizedBox(height: 12),
+          if (!acc.signedIn)
+            FilledButton.icon(
+              icon: const Icon(Icons.login_rounded),
+              label: const Text('Sign in to YouTube'),
+              onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const _YoutubeLogin())),
+            )
+          else
+            OutlinedButton.icon(
+              icon: const Icon(Icons.logout_rounded),
+              label: const Text('Sign out'),
+              onPressed: () async {
+                await acc.signOut();
+                try {
+                  await WebviewCookieManager().clearCookies();
+                } catch (_) {}
+              },
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _YoutubeLogin extends StatefulWidget {
+  const _YoutubeLogin();
+  @override
+  State<_YoutubeLogin> createState() => _YoutubeLoginState();
+}
+
+class _YoutubeLoginState extends State<_YoutubeLogin> {
+  late final WebViewController _c;
+  bool _done = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _c = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1')
+      ..setNavigationDelegate(NavigationDelegate(onPageFinished: _check))
+      ..loadRequest(Uri.parse('https://accounts.google.com/ServiceLogin?service=youtube&continue=https%3A%2F%2Fwww.youtube.com%2F'));
+  }
+
+  Future<void> _check(String url) async {
+    if (_done || !Uri.parse(url).host.endsWith('youtube.com')) return;
+    try {
+      final cookies = await WebviewCookieManager().getCookies('https://www.youtube.com');
+      final header = cookies.map((c) => '${c.name}=${c.value}').join('; ');
+      if (!header.contains('SAPISID=')) return;
+      _done = true;
+      await nok.ytAccount.save(header);
+      await nok.ytAccount.refreshProfile();
+      Diag.info('yt.account', 'signed in');
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      Diag.error('yt.account', 'cookie read failed', error: e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Sign in to YouTube')), body: WebViewWidget(controller: _c));
 }

@@ -54,7 +54,7 @@ class LibraryScreen extends StatelessWidget {
           _ArtistsTab(),
           _GenresTab(),
           _FoldersTab(),
-          _PlaylistsTab(),
+          PlaylistsTab(),
           _VideosTab(),
         ]),
       ),
@@ -210,8 +210,8 @@ class _FoldersTab extends StatelessWidget {
   }
 }
 
-class _PlaylistsTab extends StatelessWidget {
-  const _PlaylistsTab();
+class PlaylistsTab extends StatelessWidget {
+  const PlaylistsTab({super.key});
   @override
   Widget build(BuildContext context) {
     final lib = context.watch<LibraryController>();
@@ -261,4 +261,11 @@ class _VideosTab extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Bottom-nav "Playlists" tab.
+class PlaylistsScreen extends StatelessWidget {
+  const PlaylistsScreen({super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Playlists')), body: const PlaylistsTab());
 }

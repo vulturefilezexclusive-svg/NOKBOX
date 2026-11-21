@@ -5,11 +5,11 @@ import 'package:provider/provider.dart';
 
 import '../app_globals.dart';
 import '../audio/playback_controller.dart';
+import '../core/diagnostics.dart';
 import '../core/theme/theme_controller.dart';
 import 'player/full_player.dart';
 import 'player/mini_player.dart';
 import 'screens/feed_screen.dart';
-import 'screens/home_screen.dart';
 import 'screens/library_screen.dart';
 import 'screens/search_screen.dart';
 import 'settings/settings_screen.dart';
@@ -55,6 +55,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) nok.library.rescan();
+    if (state == AppLifecycleState.detached) Diag.cleanExit();
   }
 
   @override
@@ -81,10 +82,10 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
       },
       child: Scaffold(
         body: IndexedStack(index: _tab, children: [
-          _tabNav(0, const HomeScreen()),
+          _tabNav(0, const FeedScreen()),
           _tabNav(1, const LibraryScreen()),
           _tabNav(2, const SearchScreen()),
-          _tabNav(3, const FeedScreen()),
+          _tabNav(3, const PlaylistsScreen()),
           _tabNav(4, const SettingsScreen()),
         ]),
         bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -101,7 +102,7 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
               NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
               NavigationDestination(icon: Icon(Icons.library_music_outlined), selectedIcon: Icon(Icons.library_music_rounded), label: 'Library'),
               NavigationDestination(icon: Icon(Icons.search_rounded), selectedIcon: Icon(Icons.manage_search_rounded), label: 'Search'),
-              NavigationDestination(icon: Icon(Icons.dynamic_feed_outlined), selectedIcon: Icon(Icons.dynamic_feed_rounded), label: 'Feed'),
+              NavigationDestination(icon: Icon(Icons.queue_music_outlined), selectedIcon: Icon(Icons.queue_music_rounded), label: 'Playlists'),
               NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune_rounded), label: 'Settings'),
             ],
           ),
