@@ -42,7 +42,7 @@ class _FeedScreenState extends State<FeedScreen> {
             const SizedBox(height: 6),
             const Text('Type any service name or paste a URL (stream, M3U, RSS, website). Leave empty for YouTube.'),
             const SizedBox(height: 12),
-            TextField(controller: c, decoration: const InputDecoration(hintText: 'e.g. audius, radio, podcasts, https://…'), onSubmitted: (v) => Navigator.pop(ctx, v)),
+            TextField(controller: c, decoration: const InputDecoration(hintText: 'e.g. radio, podcasts, bandcamp, https://…'), onSubmitted: (v) => Navigator.pop(ctx, v)),
             const SizedBox(height: 12),
             Wrap(spacing: 8, runSpacing: 8, children: [
               for (final p in reg.builtIns) ActionChip(avatar: Icon(p.icon, size: 16, color: p.brandColor), label: Text(p.name), onPressed: () => Navigator.pop(ctx, p.id == SourceIds.youtube ? '' : p.name)),

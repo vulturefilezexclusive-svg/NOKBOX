@@ -4,9 +4,6 @@ import 'dart:convert';
 class SourceIds {
   static const local = 'local';
   static const youtube = 'youtube';
-  static const audius = 'audius';
-  static const audiomack = 'audiomack';
-  static const jamendo = 'jamendo';
   static const podcast = 'podcast';
   static const radio = 'radio';
   static const archive = 'archive';

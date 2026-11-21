@@ -16,6 +16,7 @@ import '../sources/download_manager.dart';
 import '../sources/source_matcher.dart';
 import '../sources/source_registry.dart';
 import '../sources/youtube/sponsorblock.dart';
+import '../sources/youtube/youtube_account.dart';
 import 'settings.dart';
 import 'theme/theme_controller.dart';
 
@@ -35,6 +36,7 @@ class Services {
     required this.backend,
     required this.sponsorBlock,
     required this.ryd,
+    required this.ytAccount,
   });
 
   final SettingsStore settings;
@@ -50,6 +52,7 @@ class Services {
   final AudioBackend backend;
   final SponsorBlockController sponsorBlock;
   final RydClient ryd;
+  final YoutubeAccount ytAccount;
   NokAudioHandler? handler;
 
   static Future<Services> init({AudioBackend? backend}) async {
@@ -64,7 +67,9 @@ class Services {
     final downloadsDir = p.join(musicDir, 'NOKBOX Downloads');
     final library = LibraryController(db: db, settings: settings, documentsDir: musicDir, artDir: p.join(dataDir.path, 'art'));
     library.loadFromDb();
-    final registry = SourceRegistry(settings);
+    final ytAccount = YoutubeAccount();
+    await ytAccount.load();
+    final registry = SourceRegistry(settings, account: ytAccount, recentHistory: () => [for (final h in db.recentHistory(limit: 30)) h.$1]);
     final be = backend ?? MpvAudioBackend();
     final eq = EqualizerController(db: db, backend: be);
     final matcher = SourceMatcher(localTracks: () => library.tracks, providers: () => registry.builtIns);
@@ -87,6 +92,7 @@ class Services {
       backend: be,
       sponsorBlock: SponsorBlockController(pc: playback, backend: be, settings: settings),
       ryd: RydClient(),
+      ytAccount: ytAccount,
     );
     await playback.applyEngineSettings();
     s.handler = await initAudioService(playback);

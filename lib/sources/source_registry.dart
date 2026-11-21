@@ -5,27 +5,22 @@ import '../core/settings.dart';
 import '../data/models.dart';
 import '../library/text_utils.dart';
 import 'providers/archive_provider.dart';
-import 'providers/audiomack_provider.dart';
-import 'providers/audius_provider.dart';
 import 'providers/custom_provider.dart';
-import 'providers/jamendo_provider.dart';
 import 'providers/podcast_provider.dart';
 import 'providers/radio_provider.dart';
 import 'providers/youtube_provider.dart';
 import 'source_provider.dart';
+import 'youtube/youtube_account.dart';
 
 /// Holds every provider and maps the free-text Settings "Source" field to
 /// the feed provider. Empty field => YouTube.
 class SourceRegistry extends ChangeNotifier {
-  SourceRegistry(this.settings, {List<SourceProvider>? providers}) {
+  SourceRegistry(this.settings, {List<SourceProvider>? providers, YoutubeAccount? account, List<Track> Function()? recentHistory}) {
     final list = providers ??
         [
-          YoutubeProvider(settings),
-          AudiusProvider(),
-          AudiomackProvider(settings),
+          YoutubeProvider(settings, account ?? YoutubeAccount(), recentHistory: recentHistory),
           PodcastProvider(settings),
           RadioProvider(),
-          JamendoProvider(settings),
           ArchiveProvider(),
         ];
     for (final p in list) {

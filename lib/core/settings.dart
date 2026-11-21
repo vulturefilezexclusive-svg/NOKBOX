@@ -70,13 +70,9 @@ class SettingsStore extends ChangeNotifier {
   set sourceField(String v) => set('sourceField', v.trim());
   bool get autoSourceSwitch => get('autoSourceSwitch', true);
   set autoSourceSwitch(bool v) => set('autoSourceSwitch', v);
-  String get audiomackConsumerKey => get('audiomackKey', '');
-  String get audiomackConsumerSecret => get('audiomackSecret', '');
-  bool get audiomackDownloadsApproved => get('audiomackDlApproved', false);
-  String get jamendoClientId => get('jamendoClientId', '');
   String get podcastIndexKey => get('podcastIndexKey', '');
   String get podcastIndexSecret => get('podcastIndexSecret', '');
-  bool get youtubeDownloaderEnabled => get('ytDownloader', false);
+  bool get youtubeDownloadVideo => get('ytDownloadVideo', false);
   bool get dataSaver => get('dataSaver', false);
 
   // ---- Playback ----

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../core/diagnostics.dart';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -360,6 +361,7 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> _handleFailure(Track t, int i, String error, {required bool autoplay, required Set<String> tried}) async {
     lastError = error;
+    Diag.warn('playback', '${t.id} failed: $error');
     if (settings.autoSourceSwitch && tried.length < 4) {
       _messages.add('${t.title} failed on ${t.source} — searching other sources…');
       final alt = await matcher.findAlternative(t, exclude: tried);
@@ -371,6 +373,7 @@ class PlaybackController extends ChangeNotifier {
         return;
       }
     }
+    Diag.error('playback', 'Couldn\'t play ${t.title} (${t.source})', details: error);
     _messages.add('Couldn\'t play ${t.title}');
     _buffering = false;
     notifyListeners();

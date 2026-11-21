@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+
+import '../core/diagnostics.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 
@@ -101,17 +103,49 @@ class DownloadManager extends ChangeNotifier {
       final provider = registry.providerFor(task.track);
       final info = await provider?.resolveDownload(task.track);
       if (info == null) throw Exception('No permitted download for this track');
-      final req = http.Request('GET', Uri.parse(info.url))..headers.addAll({'User-Agent': nokUserAgent, ...info.headers});
-      final res = await _http.send(req);
-      if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
-      task.total = res.contentLength ?? 0;
-      final ct = res.headers['content-type'] ?? '';
-      final ext = ct.contains('mpeg') ? '.mp3' : ct.contains('mp4') || ct.contains('m4a') ? '.m4a' : ct.contains('ogg') ? '.ogg' : ct.contains('flac') ? '.flac' : '.mp3';
+      final chunked = info.headers.containsKey('x-nok-chunked');
+      final headers = {'User-Agent': nokUserAgent, ...info.headers}..remove('x-nok-chunked');
+      // YouTube throttles/aborts single long requests, so fetch in ranges.
+      Stream<List<int>> body;
+      String ct;
+      if (chunked) {
+        const step = 9 * 1024 * 1024;
+        final head = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=0-0'}));
+        await head.stream.drain<void>();
+        if (head.statusCode >= 400) throw Exception('HTTP ${head.statusCode}');
+        final cr = head.headers['content-range'] ?? '';
+        task.total = int.tryParse(cr.split('/').last) ?? 0;
+        ct = info.mime ?? head.headers['content-type'] ?? '';
+        final total = task.total;
+        Stream<List<int>> ranges() async* {
+          var start = 0;
+          while (total == 0 || start < total) {
+            final end = total == 0 ? start + step - 1 : (start + step - 1).clamp(0, total - 1);
+            final r = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=$start-$end'}));
+            if (r.statusCode >= 400) throw Exception('HTTP ${r.statusCode}');
+            var got = 0;
+            await for (final c in r.stream) {
+              got += c.length;
+              yield c;
+            }
+            if (got == 0) break;
+            start += got;
+          }
+        }
+        body = ranges();
+      } else {
+        final res = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll(headers));
+        if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+        task.total = res.contentLength ?? 0;
+        ct = info.mime ?? res.headers['content-type'] ?? '';
+        body = res.stream;
+      }
+      final ext = ct.startsWith('video/') ? '.mp4' : ct.contains('webm') ? '.webm' : ct.contains('mpeg') ? '.mp3' : ct.contains('mp4') || ct.contains('m4a') ? '.m4a' : ct.contains('ogg') ? '.ogg' : ct.contains('flac') ? '.flac' : '.mp3';
       final dir = Directory(p.join(downloadsDir, safeName(task.track.displayArtist)))..createSync(recursive: true);
       final finalPath = p.join(dir.path, '${safeName('${task.track.displayArtist} - ${task.track.title}')}$ext');
       tmp = File('$finalPath.part');
       sink = tmp.openWrite();
-      await for (final chunk in res.stream) {
+      await for (final chunk in body) {
         if (task._cancel) throw const _Canceled();
         sink.add(chunk);
         task.received += chunk.length;
@@ -130,6 +164,7 @@ class DownloadManager extends ChangeNotifier {
     } catch (e) {
       task.status = DownloadStatus.failed;
       task.error = '$e';
+      Diag.error('download', 'Failed: ${task.track.title}', error: e);
     } finally {
       await sink?.close();
       if (task.status != DownloadStatus.done && tmp != null && tmp.existsSync()) {

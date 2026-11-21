@@ -9,7 +9,6 @@ import '../../core/settings.dart';
 import '../../library/library_controller.dart';
 import '../../library/text_utils.dart';
 import '../../sources/download_manager.dart';
-import '../../sources/providers/youtube_provider.dart';
 import '../../sources/source_registry.dart';
 import '../../sources/youtube/sponsorblock.dart';
 import '../widgets/common.dart';
@@ -124,20 +123,14 @@ class SourcesSettings extends StatelessWidget {
             title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text(p.setupHint == null ? p.tagline : 'Needs setup'),
             children: [
-              Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text(p.licenseNote, style: const TextStyle(fontSize: 12))),
-              if (p.id == 'audiomack') ...[
-                keyField('Audiomack consumer key', 'audiomackKey'),
-                keyField('Audiomack consumer secret', 'audiomackSecret', secret: true),
-                SwitchListTile(title: const Text('Audiomack approved downloads in writing'), value: s.audiomackDownloadsApproved, onChanged: (v) => s.set('audiomackDlApproved', v)),
-              ],
-              if (p.id == 'jamendo') keyField('Jamendo client_id', 'jamendoClientId'),
+              if (p.licenseNote.isNotEmpty) Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 8), child: Text(p.licenseNote, style: const TextStyle(fontSize: 12))),
               if (p.id == 'podcast') ...[keyField('Podcast Index key (optional)', 'podcastIndexKey'), keyField('Podcast Index secret', 'podcastIndexSecret', secret: true)],
               if (p.id == 'youtube')
                 SwitchListTile(
-                  title: const Text('YouTube downloader add-on'),
-                  subtitle: Text(kYoutubeDownloaderBuild ? 'Optional module — personal use, respect creators' : 'Not included in this build (store-safe). Build with --dart-define=NOKBOX_YT_DOWNLOADS=true'),
-                  value: s.youtubeDownloaderEnabled && kYoutubeDownloaderBuild,
-                  onChanged: kYoutubeDownloaderBuild ? (v) => s.set('ytDownloader', v) : null,
+                  title: const Text('Download as video'),
+                  subtitle: const Text('Off: high-quality audio (m4a). On: video (mp4).'),
+                  value: s.youtubeDownloadVideo,
+                  onChanged: (v) => s.set('ytDownloadVideo', v),
                 ),
             ],
           ),
@@ -268,7 +261,7 @@ class DownloadsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Downloads'), actions: [TextButton(onPressed: dm.clearFinished, child: const Text('Clear done'))]),
       body: dm.tasks.isEmpty
-          ? const EmptyState(icon: Icons.download_rounded, title: 'No downloads', message: 'Downloads appear where a source allows them (Audius artist downloads, Jamendo CC, podcasts, Internet Archive CC). Everything else streams.')
+          ? const EmptyState(icon: Icons.download_rounded, title: 'No downloads', message: 'Tap the download icon on any song or video. Finished downloads land in your Library.')
           : ListView(children: [
               for (final t in dm.tasks.reversed)
                 ListTile(
@@ -359,13 +352,13 @@ class AboutScreen extends StatelessWidget {
         const SizedBox(height: 14),
         const NokWordmark(size: 34, tagline: true),
         const SizedBox(height: 8),
-        const Text('Version 0.1.0 · original app, built from scratch. Inspired by the feature depth of players like Namida — no code or assets from them.'),
+        const Text('Version 0.2.0'),
         const SectionHeader('Credits', padding: EdgeInsets.fromLTRB(0, 20, 0, 8)),
         const Text('• LRCLIB — open synced lyrics (lrclib.net)\n'
             '• AutoEQ — headphone EQ by Jaakko Pasanen (MIT); measurements by oratory1990, Rtings, Innerfidelity & others\n'
             '• SponsorBlock — segment data by Ajay Ramachandran & contributors (CC BY-NC-SA 4.0)\n'
             '• Return YouTube Dislike — dislike estimates (returnyoutubedislike.com)\n'
-            '• Audius API, Jamendo API, Radio Browser, Podcast Index, iTunes Search, Internet Archive\n'
+            '• Radio Browser, Podcast Index, iTunes Search, Internet Archive\n'
             '• media_kit / libmpv / FFmpeg (audio & video engine)'),
         const SizedBox(height: 12),
         OutlinedButton.icon(

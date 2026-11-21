@@ -47,7 +47,7 @@ class SourceMatcher {
 
     final ps = providers().where((p) => p.id != failed.source && p.setupHint == null).toList();
     // Download-permitted catalogs first.
-    const preferred = [SourceIds.audius, SourceIds.jamendo, SourceIds.archive];
+    const preferred = [SourceIds.youtube, SourceIds.archive];
     ps.sort((a, b) => (preferred.contains(a.id) ? 0 : 1).compareTo(preferred.contains(b.id) ? 0 : 1));
     final q = '${failed.artist} ${normalizeTitle(failed.title)}'.trim();
     for (final p in ps) {
