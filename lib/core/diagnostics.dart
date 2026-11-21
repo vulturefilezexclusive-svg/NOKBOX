@@ -57,8 +57,10 @@ class Diag {
 
   static void info(String tag, String msg) => _add(DiagLevel.info, tag, msg);
   static void warn(String tag, String msg) => _add(DiagLevel.warn, tag, msg);
-  static void error(String tag, String msg, {Object? error, StackTrace? stack, String? details}) =>
-      _add(DiagLevel.error, tag, msg, details: [if (details != null) details, if (error != null) '$error', if (stack != null) '$stack'].join('\n    '));
+  static void error(String tag, String msg, {Object? error, StackTrace? stack, String? details}) {
+    final extra = [?details, if (error != null) '$error', if (stack != null) '$stack'].join('\n    ');
+    _add(DiagLevel.error, tag, msg, details: extra.isEmpty ? null : extra);
+  }
 
   static void _flag() {
     if (flagged || _dir == null) return;

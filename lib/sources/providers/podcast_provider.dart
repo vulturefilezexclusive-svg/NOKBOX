@@ -97,9 +97,9 @@ class PodcastProvider extends SourceProvider {
   Future<List<Track>> search(String query) => _searchShows(query);
 
   @override
-  Future<List<Track>> expand(Track show) async {
-    final r = await _http.get(Uri.parse(show.extra['feed'] as String? ?? show.uri), headers: {'User-Agent': nokUserAgent});
-    return parseRss(utf8.decode(r.bodyBytes, allowMalformed: true), fallbackArt: show.artUri, showName: show.title);
+  Future<List<Track>> expand(Track collection) async {
+    final r = await _http.get(Uri.parse(collection.extra['feed'] as String? ?? collection.uri), headers: {'User-Agent': nokUserAgent});
+    return parseRss(utf8.decode(r.bodyBytes, allowMalformed: true), fallbackArt: collection.artUri, showName: collection.title);
   }
 
   /// Parses podcast RSS into episode tracks (also used by Custom URL feeds).

@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Also build every pull request: analyze, tests and the real unsigned .ipa
+  # run on the proposed branch before it can merge. Without this trigger a PR
+  # head had no workflow run at all and the quality gate was invisible.
+  pull_request:
   workflow_dispatch:
 
 permissions:
