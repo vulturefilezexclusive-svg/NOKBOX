@@ -88,6 +88,28 @@ void main() {
     expect(db.playlists().first.trackIds, ['local:/a.mp3']);
   });
 
+  test('deleting a queue keeps the player on the same queue', () {
+    final set = QueueSet(
+      queues: [
+        PlayQueue(id: 'a', name: 'A', items: [t('1')]),
+        PlayQueue(id: 'b', name: 'B', items: [t('2')]),
+        PlayQueue(id: 'c', name: 'C', items: [t('3')]),
+      ],
+      active: 2,
+    );
+    set.delete(0); // delete a queue below the active one
+    expect(set.current.id, 'c');
+    set.delete(1); // delete the active queue itself
+    expect(set.current.id, 'b');
+  });
+
+  test('reorder ignores out-of-range indices', () {
+    final q = PlayQueue(id: '1', name: 'Q', items: [t('1'), t('2')]);
+    q.move(0, 5);
+    q.move(-1, 0);
+    expect(q.items.map((e) => e.id).toList(), ['1', '2']);
+  });
+
   test('M3U parsing', () {
     final r = CustomUrlProvider.parsePlaylist('#EXTM3U\n#EXTINF:-1,Hot 97\nhttp://x/s.mp3\n', Uri.parse('http://x/'));
     expect(r.single.$2, 'Hot 97');
