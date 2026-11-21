@@ -101,7 +101,6 @@ class _BarIcon extends StatelessWidget {
           tooltip: tooltip,
           padding: EdgeInsets.zero,
           visualDensity: VisualDensity.compact,
-          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           constraints: const BoxConstraints(),
           onPressed: onPressed,
         ),
