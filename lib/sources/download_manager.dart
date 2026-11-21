@@ -1,0 +1,148 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
+import 'package:path/path.dart' as p;
+import 'package:url_launcher/url_launcher.dart';
+
+import '../data/models.dart';
+import 'source_provider.dart';
+import 'source_registry.dart';
+
+enum DownloadStatus { queued, running, done, failed, canceled }
+
+class DownloadTask {
+  DownloadTask(this.track);
+  final Track track;
+  DownloadStatus status = DownloadStatus.queued;
+  double progress = 0;
+  int received = 0;
+  int total = 0;
+  String? path;
+  String? error;
+  bool _cancel = false;
+}
+
+/// One download manager for every source. Only runs when the provider
+/// declares [DownloadCapability.allowed]; `viaOfficialPage` opens the
+/// service's own page; `none` is refused.
+class DownloadManager extends ChangeNotifier {
+  DownloadManager({required this.registry, required this.downloadsDir, required this.onFinished, http.Client? client})
+      : _http = client ?? http.Client();
+
+  final SourceRegistry registry;
+  final String downloadsDir;
+  final Future<void> Function() onFinished;
+  final http.Client _http;
+  final List<DownloadTask> tasks = [];
+  int maxParallel = 2;
+
+  int get active => tasks.where((t) => t.status == DownloadStatus.running).length;
+
+  DownloadCapability capabilityOf(Track t) => registry.capability(t);
+
+  /// Returns a user-facing message.
+  Future<String> request(Track t) async {
+    final cap = capabilityOf(t);
+    switch (cap) {
+      case DownloadCapability.none:
+        return '${t.title}: this source is stream-only.';
+      case DownloadCapability.viaOfficialPage:
+        final page = registry.providerFor(t)?.officialPage(t);
+        if (page != null) await launchUrl(page, mode: LaunchMode.externalApplication);
+        return 'Opened the official page — downloads there land in Files › NOKBOX and get cataloged automatically.';
+      case DownloadCapability.allowed:
+        if (tasks.any((x) => x.track.id == t.id && x.status != DownloadStatus.failed && x.status != DownloadStatus.canceled)) {
+          return 'Already in downloads.';
+        }
+        tasks.add(DownloadTask(t));
+        notifyListeners();
+        _pump();
+        return 'Downloading ${t.title}';
+    }
+  }
+
+  void cancel(DownloadTask t) {
+    t._cancel = true;
+    if (t.status == DownloadStatus.queued) t.status = DownloadStatus.canceled;
+    notifyListeners();
+  }
+
+  void clearFinished() {
+    tasks.removeWhere((t) => t.status == DownloadStatus.done || t.status == DownloadStatus.canceled || t.status == DownloadStatus.failed);
+    notifyListeners();
+  }
+
+  void retry(DownloadTask t) {
+    t.status = DownloadStatus.queued;
+    t._cancel = false;
+    t.error = null;
+    notifyListeners();
+    _pump();
+  }
+
+  void _pump() {
+    while (active < maxParallel) {
+      final next = tasks.where((t) => t.status == DownloadStatus.queued).firstOrNull;
+      if (next == null) return;
+      _run(next);
+    }
+  }
+
+  static String safeName(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  Future<void> _run(DownloadTask task) async {
+    task.status = DownloadStatus.running;
+    notifyListeners();
+    IOSink? sink;
+    File? tmp;
+    try {
+      final provider = registry.providerFor(task.track);
+      final info = await provider?.resolveDownload(task.track);
+      if (info == null) throw Exception('No permitted download for this track');
+      final req = http.Request('GET', Uri.parse(info.url))..headers.addAll({'User-Agent': nokUserAgent, ...info.headers});
+      final res = await _http.send(req);
+      if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+      task.total = res.contentLength ?? 0;
+      final ct = res.headers['content-type'] ?? '';
+      final ext = ct.contains('mpeg') ? '.mp3' : ct.contains('mp4') || ct.contains('m4a') ? '.m4a' : ct.contains('ogg') ? '.ogg' : ct.contains('flac') ? '.flac' : '.mp3';
+      final dir = Directory(p.join(downloadsDir, safeName(task.track.displayArtist)))..createSync(recursive: true);
+      final finalPath = p.join(dir.path, '${safeName('${task.track.displayArtist} - ${task.track.title}')}$ext');
+      tmp = File('$finalPath.part');
+      sink = tmp.openWrite();
+      await for (final chunk in res.stream) {
+        if (task._cancel) throw const _Canceled();
+        sink.add(chunk);
+        task.received += chunk.length;
+        task.progress = task.total > 0 ? task.received / task.total : 0;
+        notifyListeners();
+      }
+      await sink.close();
+      sink = null;
+      await tmp.rename(finalPath);
+      task.path = finalPath;
+      task.status = DownloadStatus.done;
+      task.progress = 1;
+      await onFinished();
+    } on _Canceled {
+      task.status = DownloadStatus.canceled;
+    } catch (e) {
+      task.status = DownloadStatus.failed;
+      task.error = '$e';
+    } finally {
+      await sink?.close();
+      if (task.status != DownloadStatus.done && tmp != null && tmp.existsSync()) {
+        try {
+          tmp.deleteSync();
+        } catch (_) {}
+      }
+      notifyListeners();
+      _pump();
+    }
+  }
+}
+
+class _Canceled implements Exception {
+  const _Canceled();
+}
