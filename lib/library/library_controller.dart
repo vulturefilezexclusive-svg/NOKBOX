@@ -39,10 +39,19 @@ class LibraryController extends ChangeNotifier {
   Timer? _watchDebounce;
   Timer? _settingsDebounce;
 
-  /// Minimum duration the stored catalog was indexed with, kept in the database
-  /// so the value also survives a restart.
+  /// Index filters the stored catalog was built with, kept in the database so a
+  /// restart cannot hide a settings change. Only the duration floor also needs
+  /// every tag re-read; the size and video filters are re-applied by any scan.
   static const _durationKey = 'library.indexedMinDurationSec';
+  static const _filterKey = 'library.indexedFilters';
   String _viewPrint = '';
+
+  String _indexPrint() => '${settings.minSizeKb}|${settings.includeVideos}';
+
+  /// True when the catalog was indexed with different filters than the ones
+  /// selected now, so a scan is due.
+  bool get _filtersStale =>
+      db.kvGet(_durationKey) != '${settings.minDurationSec}' || db.kvGet(_filterKey) != _indexPrint();
 
   List<Track> get tracks => _tracks;
   List<Track> get videos => _tracks.where((t) => t.isVideo).toList();
@@ -78,7 +87,10 @@ class LibraryController extends ChangeNotifier {
       // duration floor changed, every tag must be read again so tracks that
       // are now too short get dropped.
       final minDuration = '${settings.minDurationSec}';
-      final sameFilters = db.kvGet(_durationKey) == minDuration;
+      // Only the duration floor forces tag re-reads. The size check runs before
+      // the mtime shortcut and excluded videos are simply not seen, so those
+      // two filters are applied correctly by any scan.
+      final sameDuration = db.kvGet(_durationKey) == minDuration;
       final r = await runIndexer(IndexOptions(
         roots: roots,
         excluded: settings.excludedFolders,
@@ -86,11 +98,12 @@ class LibraryController extends ChangeNotifier {
         minDurationSec: settings.minDurationSec,
         minSizeKb: settings.minSizeKb,
         includeVideos: settings.includeVideos,
-        known: sameFilters ? known : const {},
+        known: sameDuration ? known : const {},
       ));
       if (r.added.isNotEmpty) db.upsertTracks(r.added);
       if (r.removedIds.isNotEmpty) db.deleteTracks(r.removedIds);
       db.kvSet(_durationKey, minDuration);
+      db.kvSet(_filterKey, _indexPrint());
       _viewPrint = _computeViewPrint();
       lastScanSummary = '${r.added.length} new/updated · ${r.removedIds.length} removed · ${r.unchanged} unchanged · ${r.skipped} filtered';
       completed = true;
@@ -101,7 +114,7 @@ class LibraryController extends ChangeNotifier {
       notifyListeners();
       // A settings change that arrived mid-scan was refused by the guard above;
       // run again so the library never keeps the old filters.
-      if (completed && db.kvGet(_durationKey) != '${settings.minDurationSec}') {
+      if (completed && _filtersStale) {
         _settingsDebounce?.cancel();
         _settingsDebounce = Timer(const Duration(milliseconds: 300), rescan);
       }
@@ -124,7 +137,7 @@ class LibraryController extends ChangeNotifier {
       _rebuild(db.allTracks());
       notifyListeners();
     }
-    if (db.kvGet(_durationKey) != '${settings.minDurationSec}') {
+    if (_filtersStale) {
       _settingsDebounce?.cancel();
       _settingsDebounce = Timer(const Duration(milliseconds: 800), rescan);
     }
