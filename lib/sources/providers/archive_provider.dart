@@ -67,24 +67,24 @@ class ArchiveProvider extends SourceProvider {
   Future<List<Track>> search(String query) => _items(query);
 
   @override
-  Future<List<Track>> expand(Track item) async {
-    final r = await _http.get(Uri.https('archive.org', '/metadata/${item.remoteId}'), headers: {'User-Agent': nokUserAgent});
+  Future<List<Track>> expand(Track collection) async {
+    final r = await _http.get(Uri.https('archive.org', '/metadata/${collection.remoteId}'), headers: {'User-Agent': nokUserAgent});
     final j = jsonDecode(r.body) as Map;
     final files = (j['files'] as List? ?? const []).where((f) => '${f['format']}'.contains('MP3') || '${f['name']}'.toLowerCase().endsWith('.mp3'));
     return [
       for (final f in files)
         Track(
-          id: 'archive:${item.remoteId}/${f['name']}',
-          uri: 'https://archive.org/download/${item.remoteId}/${Uri.encodeComponent(f['name'] as String)}',
+          id: 'archive:${collection.remoteId}/${f['name']}',
+          uri: 'https://archive.org/download/${collection.remoteId}/${Uri.encodeComponent(f['name'] as String)}',
           source: SourceIds.archive,
-          remoteId: '${item.remoteId}/${f['name']}',
+          remoteId: '${collection.remoteId}/${f['name']}',
           title: '${f['title'] ?? (f['name'] as String).replaceAll('.mp3', '')}',
-          artist: '${f['creator'] ?? item.artist}',
-          album: item.title,
+          artist: '${f['creator'] ?? collection.artist}',
+          album: collection.title,
           durationMs: ((double.tryParse('${f['length'] ?? 0}') ?? 0) * 1000).toInt(),
-          artUri: item.artUri,
+          artUri: collection.artUri,
           download: DownloadCapability.allowed,
-          extra: {'license': item.extra['license']},
+          extra: {'license': collection.extra['license']},
         ),
     ];
   }
