@@ -1,4 +1,4 @@
-NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~2:20 AM CST
+NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~2:25 AM CST
 Repo:    https://github.com/vulturefilezexclusive-svg/NOKBOX  (private, branch main)
 Actions: https://github.com/vulturefilezexclusive-svg/NOKBOX/actions
 Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://github.com/vulturefilezexclusive-svg/NOKBOX/actions/runs/44880024603
@@ -22,7 +22,7 @@ Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://gith
    Files: lib/sources/source_registry.dart, source_matcher.dart, data/models.dart, core/settings.dart, ui/settings/settings_screen.dart, ui/screens/feed_screen.dart
 4. Namida mention + disclaimers removed (About now just "Version 0.2.0"; YouTube ToS blurb and "Not included in this build" gone).
    Credits remain only in About > Credits / Open-source licenses.
-5. Diagnostics engine (logic done; Settings button = see TODO)
+5. Diagnostics engine (logic + Settings tile done)
    - lib/core/diagnostics.dart: ring buffer (2000 events) from launch + session temp file. First error
      (uncaught exception, Flutter error, failed playback, failed download, YouTube failure) flags the
      session and writes a permanent report-<time>.txt. Clean session buffer is deleted on clean exit and next launch.
@@ -51,19 +51,26 @@ Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://gith
      in main.dart are untouched, native splash config unchanged.
    Files: lib/ui/splash_screen.dart, lib/ui/app.dart
 
-== STILL TO DO (in order) — see HANDOFF.md ==
-a. Navigation: Home tab -> show FeedScreen (YouTube feed + "Source" switch button); 4th tab "Feed" -> "Playlists"
-   (reuse _PlaylistsTab from library_screen.dart: create; PlaylistScreen already has rename/delete).
-   File: lib/ui/root_shell.dart
-b. Settings > YouTube account screen: WebView to https://accounts.google.com/ServiceLogin?continue=https://www.youtube.com,
-   when URL reaches youtube.com read cookies with WebviewCookieManager().getCookies('https://www.youtube.com'),
-   join "name=value; ..." and call nok.ytAccount.save(...) then refreshProfile(); sign-out button -> signOut().
-   (Google may block embedded login; fallback = paste cookies / import Takeout subscriptions.)
-c. Settings > Diagnostics tile: "Export diagnostic" -> SharePlus.instance.share(ShareParams(files:[XFile((await Diag.exportBundle()).path)])); "Clear" -> Diag.clear().
-   Call Diag.cleanExit() on AppLifecycleState.detached in root_shell.dart.
-f. Background/lock screen: Info.plist already has UIBackgroundModes=audio; add AudioSession.instance configure(AudioSessionConfiguration.music()) in main.dart; audio_service handler already wired (lib/audio/audio_handler.dart). Test on device.
+== STILL TO DO ==
+All Round 2 code items are done. What remains is device testing + the v0.2.0 release:
+- Install the CI-built .ipa: confirm the animated splash plays on cold start, each FX slider
+  changes the sound, and the EQ bottom sheet opens from both players without pausing.
+- Background/lock-screen playback: code is wired (Info.plist UIBackgroundModes=audio,
+  AudioSession.configure(music) + setActive in main.dart, audio_service handler in
+  lib/audio/audio_handler.dart) — needs a device test: lock the phone mid-song, check Control Center.
+- Then tag v0.2.0 (git tag v0.2.0 && git push --tags) for the release .ipa + apps.json.
+
+Items a/b/c/f as they landed (commit c1682fa, verified in code Nov 21):
+a. Navigation — Home tab shows FeedScreen (YouTube feed + Source switch); 4th tab is Playlists
+   (PlaylistsScreen). File: lib/ui/root_shell.dart.
+b. YouTube account screen — Settings has the WebView sign-in (accounts.google.com ServiceLogin),
+   cookies via WebviewCookieManager, save via ytAccount.save + refreshProfile, sign-out.
+   File: lib/ui/settings/settings_screen.dart.
+c. Diagnostics tile — Settings > Diagnostics: Export (shares Diag.exportBundle() via SharePlus)
+   and Clear (Diag.clear()); Diag.cleanExit() runs on AppLifecycleState.detached in root_shell.dart.
+f. Background/lock screen — see device-test note above.
 
 == HOW TO PROCEED ==
 1. Wait for the Actions run to go green, open it, download artifact "NOKBOX-ipa-<sha>" (NOKBOX.ipa), install with AltStore/SideStore/Sideloadly.
-2. Test YouTube playback first. If a song still fails: Settings > Diagnostics > Export (once item c is done) and send the log.
-3. Another AI: clone repo, `flutter pub get && flutter analyze && flutter test`, do TODO a–f, push to main (CI builds the .ipa automatically).
+2. Test YouTube playback first. If a song still fails: Settings > Diagnostics > Export and send the log.
+3. Tag the release: git tag v0.2.0 && git push --tags — the release job attaches the .ipa + apps.json.
