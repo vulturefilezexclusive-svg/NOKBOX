@@ -1,4 +1,4 @@
-NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~1:25 AM CST
+NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~2:20 AM CST
 Repo:    https://github.com/vulturefilezexclusive-svg/NOKBOX  (private, branch main)
 Actions: https://github.com/vulturefilezexclusive-svg/NOKBOX/actions
 Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://github.com/vulturefilezexclusive-svg/NOKBOX/actions/runs/44880024603
@@ -34,6 +34,15 @@ Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://gith
    YouTube's anonymous home + "Because you played X" (related videos to your history) + "More from <top artist>"
    + trending hip hop / trap / drill / R&B shelves.
    New packages: flutter_secure_storage, webview_cookie_manager_plus, audio_session.
+7. EQ FX (reverb, stereo width, virtualizer, 3D)
+   - EqProfile gains reverbAmount/room/damping/wet, stereoWidth, virtualizer, threeD — all default off,
+     so existing profiles sound identical. MpvEqBuilder appends aecho / extrastereo / bs2b / apulsator
+     to the same @nokeq lavfi chain; EqualizerController setters rebuild the chain the same way EQ
+     does (live, no playback interruption).
+   - Equalizer screen gains an "FX" tab with sliders + reset. EQ button in the mini player and the
+     full player opens the EQ as a bottom sheet (showEqBottomSheet) without touching playback.
+   Files: lib/audio/eq.dart, lib/audio/mpv_filters.dart, lib/audio/equalizer_controller.dart,
+   lib/ui/settings/equalizer_screen.dart, lib/ui/player/mini_player.dart, lib/ui/player/full_player.dart
 
 == STILL TO DO (in order) — see HANDOFF.md ==
 a. Navigation: Home tab -> show FeedScreen (YouTube feed + "Source" switch button); 4th tab "Feed" -> "Playlists"
@@ -45,10 +54,6 @@ b. Settings > YouTube account screen: WebView to https://accounts.google.com/Ser
    (Google may block embedded login; fallback = paste cookies / import Takeout subscriptions.)
 c. Settings > Diagnostics tile: "Export diagnostic" -> SharePlus.instance.share(ShareParams(files:[XFile((await Diag.exportBundle()).path)])); "Clear" -> Diag.clear().
    Call Diag.cleanExit() on AppLifecycleState.detached in root_shell.dart.
-d. EQ FX: add to EqProfile: reverb (aecho in:out:delays:decays / room size, damping, wet), stereo width
-   (extrastereo=m=), virtualizer (bs2b or haas), 3D (apulsator/surround) and append to the lavfi chain in
-   lib/audio/mpv_filters.dart; sliders in equalizer_screen.dart; EQ icon button in mini_player.dart, full_player.dart
-   that opens showModalBottomSheet(EqualizerScreen) — playback is not touched, so no interruption.
 e. Animated splash: new lib/ui/splash_screen.dart (AnimationController pulsing speaker icon + glowing NOKBOX text, 1.8 s) shown before RootShell in app.dart.
 f. Background/lock screen: Info.plist already has UIBackgroundModes=audio; add AudioSession.instance configure(AudioSessionConfiguration.music()) in main.dart; audio_service handler already wired (lib/audio/audio_handler.dart). Test on device.
 

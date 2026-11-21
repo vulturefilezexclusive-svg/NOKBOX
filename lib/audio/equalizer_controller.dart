@@ -127,6 +127,49 @@ class EqualizerController extends ChangeNotifier {
     _changed();
   }
 
+  // ---- FX: each setter rebuilds the lavfi chain exactly like the EQ
+  // setters do (via _changed -> apply -> backend.setAudioFilter), so the
+  // FX take effect live without touching playback.
+  void setReverbAmount(double v) {
+    profile = profile.copyWith(reverbAmount: v.clamp(0, 1));
+    _changed();
+  }
+
+  void setReverbRoom(double v) {
+    profile = profile.copyWith(reverbRoom: v.clamp(0, 1));
+    _changed();
+  }
+
+  void setReverbDamping(double v) {
+    profile = profile.copyWith(reverbDamping: v.clamp(0, 1));
+    _changed();
+  }
+
+  void setReverbWet(double v) {
+    profile = profile.copyWith(reverbWet: v.clamp(0, 1));
+    _changed();
+  }
+
+  void setStereoWidth(double v) {
+    profile = profile.copyWith(stereoWidth: v.clamp(0, 2));
+    _changed();
+  }
+
+  void setVirtualizer(double v) {
+    profile = profile.copyWith(virtualizer: v.clamp(0, 1));
+    _changed();
+  }
+
+  void setThreeD(double v) {
+    profile = profile.copyWith(threeD: v.clamp(0, 1));
+    _changed();
+  }
+
+  void resetFx() {
+    profile = profile.copyWith(reverbAmount: 0, reverbRoom: 0.5, reverbDamping: 0.5, reverbWet: 0.5, stereoWidth: 1, virtualizer: 0, threeD: 0);
+    _changed();
+  }
+
   void reset() => select(EqProfile.flat);
 
   void saveAs(String name) {

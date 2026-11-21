@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../audio/playback_controller.dart';
 import '../root_shell.dart';
+import '../settings/equalizer_screen.dart';
 import '../widgets/common.dart';
 
 /// Persistent mini player: tap to expand, swipe up to expand, swipe
@@ -54,6 +55,7 @@ class MiniPlayer extends StatelessWidget {
                   ),
                 ]),
               ),
+              IconButton(icon: const Icon(Icons.equalizer_rounded), tooltip: 'Equalizer', onPressed: () => showEqBottomSheet(context)),
               IconButton(icon: const Icon(Icons.skip_previous_rounded), onPressed: pc.previous),
               IconButton.filled(
                 icon: pc.buffering

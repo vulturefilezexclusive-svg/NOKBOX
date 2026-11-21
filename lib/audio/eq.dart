@@ -29,7 +29,9 @@ class EqBand {
       );
 }
 
-/// A complete equalizer profile: preamp + bands + bass boost.
+/// A complete equalizer profile: preamp + bands + bass boost + FX.
+/// All FX default to off, so a profile with FX untouched sounds exactly
+/// like the same profile before FX existed.
 class EqProfile {
   const EqProfile({
     required this.name,
@@ -38,6 +40,13 @@ class EqProfile {
     this.bassBoostDb = 0,
     this.builtIn = false,
     this.source,
+    this.reverbAmount = 0,
+    this.reverbRoom = 0.5,
+    this.reverbDamping = 0.5,
+    this.reverbWet = 0.5,
+    this.stereoWidth = 1,
+    this.virtualizer = 0,
+    this.threeD = 0,
   });
 
   final String name;
@@ -48,6 +57,26 @@ class EqProfile {
 
   /// Attribution, e.g. "AutoEQ — oratory1990 measurement".
   final String? source;
+
+  /// Reverb (aecho): [reverbAmount] 0..1, 0 = off. [reverbRoom] 0..1 room
+  /// size (echo delay spread), [reverbDamping] 0..1 (tail decay),
+  /// [reverbWet] 0..1 (echo level).
+  final double reverbAmount;
+  final double reverbRoom;
+  final double reverbDamping;
+  final double reverbWet;
+
+  /// Stereo width 0..2 (1 = unchanged, >1 wider, <1 narrower).
+  final double stereoWidth;
+
+  /// Headphone virtualizer 0..1, 0 = off (bs2b crossfeed).
+  final double virtualizer;
+
+  /// 3D stereo movement 0..1, 0 = off (apulsator LFO sweep).
+  final double threeD;
+
+  /// True when any FX is on (i.e. the profile changes the sound beyond EQ).
+  bool get fxActive => reverbAmount > 0 || stereoWidth != 1 || virtualizer > 0 || threeD > 0;
 
   static const graphicFreqs = <double>[31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
@@ -76,13 +105,20 @@ class EqProfile {
     graphic('Podcast / Talk', [-4, -3, -1, 1, 2.5, 3, 2.5, 1, -1, -2], preamp: -3),
   ];
 
-  EqProfile copyWith({String? name, List<EqBand>? bands, double? preampDb, double? bassBoostDb, bool? builtIn, String? source}) => EqProfile(
+  EqProfile copyWith({String? name, List<EqBand>? bands, double? preampDb, double? bassBoostDb, bool? builtIn, String? source, double? reverbAmount, double? reverbRoom, double? reverbDamping, double? reverbWet, double? stereoWidth, double? virtualizer, double? threeD}) => EqProfile(
         name: name ?? this.name,
         bands: bands ?? this.bands,
         preampDb: preampDb ?? this.preampDb,
         bassBoostDb: bassBoostDb ?? this.bassBoostDb,
         builtIn: builtIn ?? this.builtIn,
         source: source ?? this.source,
+        reverbAmount: reverbAmount ?? this.reverbAmount,
+        reverbRoom: reverbRoom ?? this.reverbRoom,
+        reverbDamping: reverbDamping ?? this.reverbDamping,
+        reverbWet: reverbWet ?? this.reverbWet,
+        stereoWidth: stereoWidth ?? this.stereoWidth,
+        virtualizer: virtualizer ?? this.virtualizer,
+        threeD: threeD ?? this.threeD,
       );
 
   /// Rough peak headroom estimate (dB): max of summed positive gains near
@@ -122,6 +158,13 @@ class EqProfile {
         'name': name,
         'preamp': preampDb,
         'bass': bassBoostDb,
+        'reverbAmount': reverbAmount,
+        'reverbRoom': reverbRoom,
+        'reverbDamping': reverbDamping,
+        'reverbWet': reverbWet,
+        'stereoWidth': stereoWidth,
+        'virtualizer': virtualizer,
+        'threeD': threeD,
         if (source != null) 'source': source,
         'bands': [for (final b in bands) b.toJson()],
       };
@@ -130,6 +173,13 @@ class EqProfile {
         name: j['name'] as String? ?? 'Custom',
         preampDb: (j['preamp'] as num?)?.toDouble() ?? 0,
         bassBoostDb: (j['bass'] as num?)?.toDouble() ?? 0,
+        reverbAmount: (j['reverbAmount'] as num?)?.toDouble() ?? 0,
+        reverbRoom: (j['reverbRoom'] as num?)?.toDouble() ?? 0.5,
+        reverbDamping: (j['reverbDamping'] as num?)?.toDouble() ?? 0.5,
+        reverbWet: (j['reverbWet'] as num?)?.toDouble() ?? 0.5,
+        stereoWidth: (j['stereoWidth'] as num?)?.toDouble() ?? 1,
+        virtualizer: (j['virtualizer'] as num?)?.toDouble() ?? 0,
+        threeD: (j['threeD'] as num?)?.toDouble() ?? 0,
         source: j['source'] as String?,
         bands: [for (final b in (j['bands'] as List? ?? const [])) EqBand.fromJson(Map<String, dynamic>.from(b as Map))],
       );

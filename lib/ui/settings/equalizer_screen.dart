@@ -9,6 +9,22 @@ import '../../audio/eq.dart';
 import '../../audio/equalizer_controller.dart';
 import '../widgets/common.dart';
 
+/// Opens the equalizer as a bottom sheet over the player. Playback is not
+/// touched — the sheet is purely UI, so nothing pauses or restarts while
+/// it is open.
+Future<void> showEqBottomSheet(BuildContext context) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: true,
+    builder: (context) => SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.92,
+      child: const EqualizerScreen(),
+    ),
+  );
+}
+
 /// Equalizer hub: curve view, 10-band graphic sliders, parametric band
 /// editor, preamp with auto-headroom, bass boost, presets, AutoEQ import,
 /// per-output profiles. Same chain on local files and streams.
@@ -22,7 +38,7 @@ class EqualizerScreen extends StatelessWidget {
     final p = eq.profile;
     final isGraphic = p.bands.length == EqProfile.graphicFreqs.length && p.bands.every((b) => b.type == EqFilterType.peak);
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Equalizer'),
@@ -39,7 +55,7 @@ class EqualizerScreen extends StatelessWidget {
               ],
             ),
           ],
-          bottom: const TabBar(tabs: [Tab(text: 'Graphic'), Tab(text: 'Parametric')]),
+          bottom: const TabBar(tabs: [Tab(text: 'Graphic'), Tab(text: 'Parametric'), Tab(text: 'FX')]),
         ),
         body: Column(children: [
           Padding(
@@ -69,6 +85,7 @@ class EqualizerScreen extends StatelessWidget {
             child: TabBarView(children: [
               isGraphic ? _GraphicBands(eq: eq) : _NonGraphicNotice(eq: eq),
               _ParametricList(eq: eq),
+              _FxControls(eq: eq),
             ]),
           ),
           _MasterControls(eq: eq),
@@ -171,6 +188,38 @@ class _ParametricList extends StatelessWidget {
       if (eq.profile.source != null) Padding(padding: const EdgeInsets.all(8), child: Text(eq.profile.source!, style: const TextStyle(fontSize: 11))),
     ]);
   }
+}
+
+class _FxControls extends StatelessWidget {
+  const _FxControls({required this.eq});
+  final EqualizerController eq;
+  @override
+  Widget build(BuildContext context) {
+    final p = eq.profile;
+    return ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 16), children: [
+      const Text('Effects are off at 0 — your EQ sound does not change until you move a slider.', style: TextStyle(fontSize: 12)),
+      const SizedBox(height: 12),
+      _fxRow('Reverb', p.reverbAmount, eq.setReverbAmount, valueLabel: '${(p.reverbAmount * 100).round()}%'),
+      _fxRow('Room size', p.reverbRoom, eq.setReverbRoom, valueLabel: '${(p.reverbRoom * 100).round()}%'),
+      _fxRow('Damping', p.reverbDamping, eq.setReverbDamping, valueLabel: '${(p.reverbDamping * 100).round()}%'),
+      _fxRow('Wet', p.reverbWet, eq.setReverbWet, valueLabel: '${(p.reverbWet * 100).round()}%'),
+      _fxRow('Stereo width', p.stereoWidth, eq.setStereoWidth, min: 0, max: 2, valueLabel: '${(p.stereoWidth * 100).round()}%'),
+      _fxRow('Virtualizer', p.virtualizer, eq.setVirtualizer, valueLabel: '${(p.virtualizer * 100).round()}%'),
+      _fxRow('3D', p.threeD, eq.setThreeD, valueLabel: '${(p.threeD * 100).round()}%'),
+      const SizedBox(height: 8),
+      TextButton.icon(onPressed: eq.resetFx, icon: const Icon(Icons.restart_alt_rounded), label: const Text('Reset effects')),
+    ]);
+  }
+}
+
+Widget _fxRow(String label, double value, ValueChanged<double> onChanged, {double min = 0, double max = 1, required String valueLabel}) {
+  return Row(children: [
+    SizedBox(width: 96, child: Text(label, style: const TextStyle(fontWeight: FontWeight.w800))),
+    Expanded(
+      child: Slider(value: value.clamp(min, max), min: min, max: max, divisions: ((max - min) * 20).round(), onChanged: onChanged),
+    ),
+    SizedBox(width: 44, child: Text(valueLabel, textAlign: TextAlign.right)),
+  ]);
 }
 
 class _BandEditor extends StatelessWidget {

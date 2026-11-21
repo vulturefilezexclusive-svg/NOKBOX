@@ -315,7 +315,7 @@ class _ActionRow extends StatelessWidget {
     return Row(children: [
       btn(Icons.lyrics_rounded, 'Lyrics', onLyrics, active: showLyrics),
       btn(Icons.queue_music_rounded, 'Queue', () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const QueueScreen()))),
-      btn(Icons.equalizer_rounded, 'EQ', () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const EqualizerScreen())), active: nok.eq.enabled),
+      btn(Icons.equalizer_rounded, 'EQ', () => showEqBottomSheet(context), active: nok.eq.enabled),
       btn(Icons.bedtime_rounded, sleepOn ? sleepLabel(pc) : 'Sleep', () => showSleepTimerSheet(context), active: sleepOn),
       btn(Icons.speed_rounded, '${nok.settings.speed.toStringAsFixed(2)}x', () => showSpeedSheet(context)),
       if (track.isVideo) btn(pc.videoMode ? Icons.music_note_rounded : Icons.ondemand_video_rounded, pc.videoMode ? 'Audio' : 'Video', pc.toggleVideoMode, active: pc.videoMode),

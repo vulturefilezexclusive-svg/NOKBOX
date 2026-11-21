@@ -10,6 +10,10 @@ import 'eq.dart';
 ///
 /// Works identically for local files and network streams because mpv runs
 /// the filter graph on decoded PCM regardless of the source.
+///
+/// FX (reverb / stereo width / virtualizer / 3D) are appended to the same
+/// `@nokeq` lavfi graph, after the EQ bands. Every FX defaults to off, so
+/// a profile with FX untouched produces a chain identical to EQ-only.
 class MpvEqBuilder {
   const MpvEqBuilder({this.nativeShelves = false});
   final bool nativeShelves;
@@ -50,9 +54,49 @@ class MpvEqBuilder {
       peak(55, 0.8, p.bassBoostDb);
       peak(110, 1.2, p.bassBoostDb * 0.35);
     }
+    _appendFx(parts, p);
     if (parts.isEmpty) return '';
     // Labelled lavfi graph so we can replace it atomically.
     return '@nokeq:lavfi=[${parts.join(',')}]';
+  }
+
+  /// Appends the FX filters. Each FX is emitted only when it is on, so the
+  /// chain for an FX-free profile is byte-identical to the old EQ-only one.
+  void _appendFx(List<String> parts, EqProfile p) {
+    // Reverb: aecho=in_gain:out_gain:delays:decays. Room size stretches the
+    // echo delays (50..200 ms base tap); damping shortens the later taps'
+    // decay; wet scales the echo level. Amount scales the overall decay.
+    if (p.reverbAmount > 0) {
+      final amt = p.reverbAmount.clamp(0.0, 1.0);
+      final room = p.reverbRoom.clamp(0.0, 1.0);
+      final damp = p.reverbDamping.clamp(0.0, 1.0);
+      final wet = p.reverbWet.clamp(0.0, 1.0);
+      final d1 = (50 + 150 * room).round(); // 50..200 ms
+      final base = (0.25 + 0.45 * amt) * wet;
+      final dec1 = base.clamp(0.05, 0.9);
+      final dec2 = (base * (1 - 0.4 * damp)).clamp(0.05, 0.9);
+      final dec3 = (base * (1 - 0.7 * damp)).clamp(0.05, 0.9);
+      parts.add('aecho=0.8:0.9:$d1|${d1 * 2}|${d1 * 3}:${_n(dec1)}|${_n(dec2)}|${_n(dec3)}');
+    }
+    // Stereo width: extrastereo m in [-1, 1]; width 1 -> m 0 (no change).
+    if (p.stereoWidth != 1) {
+      final m = ((p.stereoWidth.clamp(0.0, 2.0) - 1) * 0.5).clamp(-1.0, 1.0);
+      parts.add('extrastereo=m=${_n(m)}');
+    }
+    // Virtualizer: bs2b crossfeed for headphones. Profile steps up with the
+    // amount (default -> cmoy -> jmeier). NOTE: bs2b needs FFmpeg built with
+    // --enable-libbs2b; if the device build lacks it, mpv rejects the chain
+    // only while virtualizer is on — verify on device.
+    if (p.virtualizer > 0) {
+      final v = p.virtualizer.clamp(0.0, 1.0);
+      final profile = v < 0.34 ? 'default' : v < 0.67 ? 'cmoy' : 'jmeier';
+      parts.add('bs2b=profile=$profile');
+    }
+    // 3D: slow LFO stereo sweep (apulsator). offset_r defaults to 0.5, so
+    // the L/R channels move out of phase — an autopanner-like 3D drift.
+    if (p.threeD > 0) {
+      parts.add('apulsator=mode=sine:amount=${_n(p.threeD.clamp(0.0, 1.0))}:hz=0.25');
+    }
   }
 
   /// mpv's software volume is cubic: gain = (vol/100)^3. Converts a dB
