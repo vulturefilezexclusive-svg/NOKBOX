@@ -104,11 +104,19 @@ class NokDatabase {
 
   void deleteTracks(Iterable<String> ids) {
     db.execute('BEGIN');
-    for (final id in ids) {
-      db.execute('DELETE FROM tracks WHERE id = ?', [id]);
-      if (_fts) db.execute('DELETE FROM tracks_fts WHERE id = ?', [id]);
+    try {
+      for (final id in ids) {
+        db.execute('DELETE FROM tracks WHERE id = ?', [id]);
+        if (_fts) db.execute('DELETE FROM tracks_fts WHERE id = ?', [id]);
+      }
+      db.execute('COMMIT');
+    } catch (e) {
+      // Never leave the connection inside an open transaction: every later
+      // write would fail with "cannot start a transaction within a
+      // transaction" for the rest of the session.
+      db.execute('ROLLBACK');
+      rethrow;
     }
-    db.execute('COMMIT');
   }
 
   List<Track> allTracks() => [
@@ -182,12 +190,17 @@ class NokDatabase {
   void setPlaylistOrder(int id, List<String> trackIds) {
     final json = {for (final r in db.select('SELECT track_id, track_json FROM playlist_items WHERE playlist_id = ?', [id])) r['track_id'] as String: r['track_json'] as String?};
     db.execute('BEGIN');
-    db.execute('DELETE FROM playlist_items WHERE playlist_id = ?', [id]);
-    var pos = 0;
-    for (final t in trackIds) {
-      db.execute('INSERT INTO playlist_items(playlist_id, pos, track_id, track_json) VALUES (?,?,?,?)', [id, pos++, t, json[t]]);
+    try {
+      db.execute('DELETE FROM playlist_items WHERE playlist_id = ?', [id]);
+      var pos = 0;
+      for (final t in trackIds) {
+        db.execute('INSERT INTO playlist_items(playlist_id, pos, track_id, track_json) VALUES (?,?,?,?)', [id, pos++, t, json[t]]);
+      }
+      db.execute('COMMIT');
+    } catch (e) {
+      db.execute('ROLLBACK');
+      rethrow;
     }
-    db.execute('COMMIT');
   }
 
   /// Remote tracks stored inline in playlists.
@@ -262,16 +275,21 @@ class NokDatabase {
   int importHistory(List<dynamic> entries) {
     var n = 0;
     db.execute('BEGIN');
-    for (final e in entries) {
-      final m = e as Map;
-      final t = Track.fromJson(Map<String, dynamic>.from(m['track'] as Map));
-      final at = (m['playedAt'] as num).toInt();
-      final exists = db.select('SELECT 1 FROM history WHERE track_id = ? AND played_at = ?', [t.id, at]).isNotEmpty;
-      if (exists) continue;
-      db.execute('INSERT INTO history(track_id, track_json, played_at, listened_ms) VALUES (?,?,?,?)', [t.id, t.encode(), at, (m['listenedMs'] as num?)?.toInt() ?? 0]);
-      n++;
+    try {
+      for (final e in entries) {
+        final m = e as Map;
+        final t = Track.fromJson(Map<String, dynamic>.from(m['track'] as Map));
+        final at = (m['playedAt'] as num).toInt();
+        final exists = db.select('SELECT 1 FROM history WHERE track_id = ? AND played_at = ?', [t.id, at]).isNotEmpty;
+        if (exists) continue;
+        db.execute('INSERT INTO history(track_id, track_json, played_at, listened_ms) VALUES (?,?,?,?)', [t.id, t.encode(), at, (m['listenedMs'] as num?)?.toInt() ?? 0]);
+        n++;
+      }
+      db.execute('COMMIT');
+    } catch (e) {
+      db.execute('ROLLBACK');
+      rethrow;
     }
-    db.execute('COMMIT');
     return n;
   }
 
