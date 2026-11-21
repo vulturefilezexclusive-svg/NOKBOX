@@ -198,6 +198,14 @@ class _FxControls extends StatelessWidget {
     final p = eq.profile;
     return ListView(padding: const EdgeInsets.fromLTRB(16, 12, 16, 16), children: [
       const Text('Effects are off at 0 — your EQ sound does not change until you move a slider.', style: TextStyle(fontSize: 12)),
+      if (eq.effectsUnavailable)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            "This build's audio engine cannot run these effects, so they are skipped to keep playback audible.",
+            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.error),
+          ),
+        ),
       const SizedBox(height: 12),
       _fxRow('Reverb', p.reverbAmount, eq.setReverbAmount, valueLabel: '${(p.reverbAmount * 100).round()}%'),
       _fxRow('Room size', p.reverbRoom, eq.setReverbRoom, valueLabel: '${(p.reverbRoom * 100).round()}%'),
