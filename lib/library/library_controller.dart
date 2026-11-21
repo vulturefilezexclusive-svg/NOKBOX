@@ -85,7 +85,8 @@ class LibraryController extends ChangeNotifier {
       // An unchanged mtime only says the file is the same; it says nothing
       // about whether the file still passes the *current* filters. When the
       // duration floor changed, every tag must be read again so tracks that
-      // are now too short get dropped.
+      // are now too short get dropped. `known` is still passed so the scan can
+      // also report files deleted from disk while the filters were changed.
       final minDuration = '${settings.minDurationSec}';
       // Only the duration floor forces tag re-reads. The size check runs before
       // the mtime shortcut and excluded videos are simply not seen, so those
@@ -98,7 +99,8 @@ class LibraryController extends ChangeNotifier {
         minDurationSec: settings.minDurationSec,
         minSizeKb: settings.minSizeKb,
         includeVideos: settings.includeVideos,
-        known: sameDuration ? known : const {},
+        known: known,
+        forceRetag: !sameDuration,
       ));
       if (r.added.isNotEmpty) db.upsertTracks(r.added);
       if (r.removedIds.isNotEmpty) db.deleteTracks(r.removedIds);

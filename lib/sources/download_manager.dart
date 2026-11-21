@@ -130,7 +130,7 @@ class DownloadManager extends ChangeNotifier {
         final cr = head.headers['content-range'] ?? '';
         task.total = int.tryParse(cr.split('/').last) ?? 0;
         ct = info.mime ?? head.headers['content-type'] ?? '';
-        final total = task.total;
+        var total = task.total;
         Stream<List<int>> ranges() async* {
           var start = 0;
           while (total == 0 || start < total) {
@@ -139,12 +139,22 @@ class DownloadManager extends ChangeNotifier {
             final rangeStatus = r.statusCode;
             lastStatus = rangeStatus;
             if (rangeStatus >= 400) throw Exception('HTTP $rangeStatus');
+            // 206 = the range was honoured. A 200 means the server ignored
+            // `Range` and sent the whole body, so this response is the file:
+            // continuing the loop would ask for the next range and either
+            // duplicate the whole file or, with an unknown total, loop
+            // forever on a download that never finishes.
+            final partial = rangeStatus == 206;
+            if (!partial && total == 0) {
+              total = r.contentLength ?? 0;
+              task.total = total;
+            }
             var got = 0;
             await for (final c in r.stream) {
               got += c.length;
               yield c;
             }
-            if (got == 0) break;
+            if (got == 0 || !partial) break;
             start += got;
           }
         }

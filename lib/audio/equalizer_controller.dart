@@ -139,6 +139,7 @@ class EqualizerController extends ChangeNotifier {
   }
 
   void setBandGain(int i, double g) {
+    if (i < 0 || i >= profile.bands.length) return;
     final bands = [...profile.bands];
     bands[i] = bands[i].copyWith(gainDb: g);
     profile = profile.copyWith(bands: bands, builtIn: false, name: profile.builtIn ? '${profile.name} (edited)' : profile.name);
@@ -146,6 +147,7 @@ class EqualizerController extends ChangeNotifier {
   }
 
   void updateBand(int i, EqBand b) {
+    if (i < 0 || i >= profile.bands.length) return;
     final bands = [...profile.bands];
     bands[i] = b;
     profile = profile.copyWith(bands: bands, builtIn: false);
@@ -158,6 +160,7 @@ class EqualizerController extends ChangeNotifier {
   }
 
   void removeBand(int i) {
+    if (i < 0 || i >= profile.bands.length) return;
     final bands = [...profile.bands]..removeAt(i);
     profile = profile.copyWith(bands: bands, builtIn: false);
     _changed();
@@ -269,7 +272,17 @@ class EqualizerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Map<String, dynamic> exportJson() => jsonDecode(db.kvGet('eq.state') ?? '{}') as Map<String, dynamic>;
+  Map<String, dynamic> exportJson() {
+    // A corrupt/absent blob must not break a backup export.
+    try {
+      final raw = db.kvGet('eq.state');
+      if (raw == null) return const {};
+      final decoded = jsonDecode(raw);
+      return decoded is Map ? Map<String, dynamic>.from(decoded) : const {};
+    } catch (_) {
+      return const {};
+    }
+  }
 
   @override
   void dispose() {

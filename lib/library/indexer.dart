@@ -22,6 +22,7 @@ class IndexOptions {
     this.minSizeKb = 100,
     this.includeVideos = true,
     this.known = const {},
+    this.forceRetag = false,
   });
   final List<String> roots;
   final List<String> excluded;
@@ -32,6 +33,13 @@ class IndexOptions {
 
   /// id -> mtime of tracks already indexed (incremental re-index).
   final Map<String, int> known;
+
+  /// Read tags again even when the mtime is unchanged (used when the duration
+  /// floor changed, which mtimes cannot reveal). [known] is still passed so
+  /// files deleted from disk are still reported in
+  /// [IndexResult.removedIds] — the old code dropped the map entirely and so
+  /// lost that detection for the scan.
+  final bool forceRetag;
 }
 
 class IndexResult {
@@ -52,6 +60,7 @@ Future<IndexResult> runIndexer(IndexOptions o) {
     'minKb': o.minSizeKb,
     'videos': o.includeVideos,
     'known': o.known,
+    'retag': o.forceRetag,
   };
   return Isolate.run(() {
     final r = _scan(args);
@@ -72,6 +81,7 @@ Map<String, Object> _scan(Map<String, Object> a) {
   final minKb = a['minKb'] as int;
   final videos = a['videos'] as bool;
   final known = Map<String, int>.from(a['known'] as Map);
+  final retag = a['retag'] as bool? ?? false;
   Directory(artDir).createSync(recursive: true);
 
   final seen = <String>{};
@@ -116,7 +126,7 @@ Map<String, Object> _scan(Map<String, Object> a) {
         skipped++;
         continue;
       }
-      if (known[id] == mtime) {
+      if (!retag && known[id] == mtime) {
         unchanged++;
         continue;
       }

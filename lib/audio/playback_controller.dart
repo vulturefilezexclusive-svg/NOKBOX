@@ -376,7 +376,15 @@ class PlaybackController extends ChangeNotifier {
     Diag.warn('playback', '${t.id} failed: $error');
     if (settings.autoSourceSwitch && tried.length < 4) {
       _messages.add('${t.title} failed on ${t.source} — searching other sources…');
-      final alt = await matcher.findAlternative(t, exclude: tried);
+      // A provider that throws while searching must not turn into an unhandled
+      // async error: this method is also called from the backend error stream,
+      // where nobody awaits it.
+      Track? alt;
+      try {
+        alt = await matcher.findAlternative(t, exclude: tried);
+      } catch (e) {
+        Diag.warn('playback', 'source search failed: $e');
+      }
       if (alt != null) {
         switchedFrom = t;
         queue.items[i] = alt;
@@ -418,7 +426,7 @@ class PlaybackController extends ChangeNotifier {
     if (_failedTrack == t.id && now.difference(_failedAt) < const Duration(seconds: 3)) return;
     _failedTrack = t.id;
     _failedAt = now;
-    _handleFailure(t, queue.index, e, autoplay: true, tried: {t.id});
+    unawaited(_handleFailure(t, queue.index, e, autoplay: true, tried: {t.id}));
   }
 
   void _onPosition(Duration p) {

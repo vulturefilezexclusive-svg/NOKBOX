@@ -30,6 +30,7 @@ class _SearchScreenState extends State<SearchScreen> {
   void _onChanged(String v) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
       setState(() => _q = v.trim());
       _searchOnline();
     });
@@ -38,21 +39,31 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _searchOnline() async {
     final q = _q;
     _online.clear();
-    if (q.length < 2) return;
-    for (final p in nok.registry.builtIns) {
-      if (p.setupHint != null) continue;
-      _loading[p.id] = true;
-      p.search(q).then((r) {
-        if (!mounted || q != _q) return;
-        setState(() {
-          _online[p.id] = r;
-          _loading[p.id] = false;
+    // Every in-flight spinner belongs to the previous query: dropping the
+    // results without clearing the flags left "loading" bars under the new
+    // query forever (the short-query early return never cleared them).
+    _loading.clear();
+    if (q.length >= 2) {
+      for (final p in nok.registry.builtIns) {
+        if (p.setupHint != null) continue;
+        _loading[p.id] = true;
+        // `catchError` on a Future<List<Track>> has to return a list, so a
+        // failing provider used to throw "handler must return a value of the
+        // future's type" instead of just clearing its spinner. `then<void>`
+        // with onError keeps the completion type void.
+        p.search(q).then<void>((r) {
+          if (!mounted || q != _q) return;
+          setState(() {
+            _online[p.id] = r;
+            _loading[p.id] = false;
+          });
+        }, onError: (_) {
+          if (!mounted || q != _q) return;
+          setState(() => _loading[p.id] = false);
         });
-      }).catchError((_) {
-        if (mounted) setState(() => _loading[p.id] = false);
-      });
+      }
     }
-    setState(() {});
+    if (mounted) setState(() {});
   }
 
   @override
