@@ -80,6 +80,9 @@ class DownloadManager extends ChangeNotifier {
     t.status = DownloadStatus.queued;
     t._cancel = false;
     t.error = null;
+    t.received = 0;
+    t.total = 0;
+    t.progress = 0;
     notifyListeners();
     _pump();
   }
@@ -169,6 +172,12 @@ class DownloadManager extends ChangeNotifier {
       }
       await sink.close();
       sink = null;
+      // A stream can end short without raising an error (dead range request,
+      // dropped socket). Never promote that partial file to done: it would be
+      // renamed into Documents and cataloged as a playable, broken track.
+      if (task.total > 0 && task.received < task.total) {
+        throw Exception('Incomplete download (${task.received}/${task.total} bytes)');
+      }
       await tmp.rename(finalPath);
       task.path = finalPath;
       task.status = DownloadStatus.done;
