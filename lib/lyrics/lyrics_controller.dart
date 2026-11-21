@@ -30,6 +30,10 @@ class LyricsController extends ChangeNotifier {
     if (t == null) {
       _track = null;
       lyrics = null;
+      error = null;
+      // Clearing the track must also clear the spinner, otherwise the lyrics
+      // view keeps showing "loading" with no track to load.
+      loading = false;
       notifyListeners();
       return;
     }

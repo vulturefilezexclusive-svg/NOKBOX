@@ -100,7 +100,16 @@ class SourceRegistry extends ChangeNotifier {
 
   SourceProvider? providerFor(Track t) {
     if (t.source == SourceIds.custom) {
-      return _custom.values.firstOrNull ?? CustomUrlProvider(Uri.parse(t.uri));
+      // Match the provider the track came from. `_custom.values.firstOrNull`
+      // returned whichever custom URL was typed first, so a second custom
+      // source (and any download/capability question about it) was answered by
+      // the wrong provider.
+      final key = t.remoteId ?? t.uri;
+      for (final p in _custom.values) {
+        if (p.url.toString() == key) return p;
+      }
+      final uri = Uri.tryParse(key);
+      return uri == null ? null : CustomUrlProvider(uri);
     }
     return _byId[t.source];
   }

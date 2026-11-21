@@ -8,6 +8,7 @@ import 'package:http/testing.dart';
 import 'package:nokbox/audio/audio_backend.dart';
 import 'package:nokbox/audio/autoeq.dart';
 import 'package:nokbox/audio/eq.dart';
+import 'package:nokbox/audio/equalizer_controller.dart';
 import 'package:nokbox/audio/mpv_filters.dart';
 import 'package:nokbox/audio/queue.dart';
 import 'package:nokbox/core/settings.dart';
@@ -253,6 +254,102 @@ void main() {
     // No finished file and no leftover .part temp file.
     expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
   });
+
+  test('a chunked download finishes when the server ignores Range', () async {
+    final dir = Directory.systemTemp.createTempSync('nokbox-dl-range-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final manager = DownloadManager(
+      registry: SourceRegistry(SettingsStore.memory(), providers: [_ChunkedProvider()]),
+      downloadsDir: dir.path,
+      onFinished: () async {},
+      // Every request, including the byte-range ones, answers 200 with the
+      // whole body — the shape that used to loop forever (no content-range,
+      // so the total stayed 0 and the range walker never terminated).
+      client: MockClient.streaming((request, _) async => http.StreamedResponse(
+            Stream.fromIterable([List.filled(1000, 7)]),
+            200,
+            contentLength: 1000,
+            headers: {'content-type': 'audio/mpeg'},
+          )),
+    );
+    addTearDown(manager.dispose);
+    final track = Track(id: 'chunked:1', uri: 'https://example.test/1.m4a', title: 'Song', artist: 'Artist', source: 'chunked');
+    await manager.request(track);
+    final task = manager.tasks.single;
+    for (var i = 0; i < 200; i++) {
+      if (task.status != DownloadStatus.running && task.status != DownloadStatus.queued) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(task.status, DownloadStatus.done);
+    expect(task.received, 1000);
+    expect(dir.listSync(recursive: true).whereType<File>(), hasLength(1));
+  });
+
+  test('a forced retag still reports files deleted from disk', () async {
+    final dir = Directory.systemTemp.createTempSync('nokbox-retag-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File(p.join(dir.path, 'Artist - Song.mp3'))..writeAsBytesSync(List.filled(4096, 0));
+    final id = 'local:${file.path}';
+    IndexOptions options({int minDurationSec = 30, Map<String, int> known = const {}, bool forceRetag = false}) => IndexOptions(
+          roots: [dir.path],
+          excluded: const [],
+          artDir: p.join(dir.path, 'art'),
+          minSizeKb: 1,
+          minDurationSec: minDurationSec,
+          known: known,
+          forceRetag: forceRetag,
+        );
+    final first = await runIndexer(options());
+    expect(first.added.map((e) => e.id), contains(id));
+    file.deleteSync();
+    // Changing the duration floor forces a retag; the file is gone, so it must
+    // still be reported as removed (the old code passed an empty `known` map
+    // and silently kept the stale row).
+    final second = await runIndexer(options(minDurationSec: 60, known: {id: 1}, forceRetag: true));
+    expect(second.removedIds, contains(id));
+    expect(second.added, isEmpty);
+  });
+
+  test('equalizer ignores stale band indices and a corrupt state blob', () {
+    final db = NokDatabase.memory();
+    final eq = EqualizerController(db: db, backend: FakeAudioBackend());
+    addTearDown(db.close);
+    addTearDown(eq.dispose);
+    final count = eq.profile.bands.length;
+    expect(() => eq.setBandGain(count, 3), returnsNormally);
+    expect(() => eq.updateBand(-1, eq.profile.bands.first), returnsNormally);
+    expect(() => eq.removeBand(count + 5), returnsNormally);
+    expect(eq.profile.bands.length, count);
+    db.kvSet('eq.state', 'not json');
+    expect(eq.exportJson(), isEmpty);
+  });
+}
+
+/// Downloads a track through the chunked (>9 MB range) path.
+class _ChunkedProvider extends SourceProvider {
+  @override
+  String get id => 'chunked';
+  @override
+  String get name => 'Chunked';
+  @override
+  String get tagline => 'Test provider';
+  @override
+  IconData get icon => const IconData(0xe000);
+  @override
+  Color get brandColor => const Color(0xFF000000);
+  @override
+  String get licenseNote => 'Tests only.';
+  @override
+  Future<List<FeedSection>> browse() async => const [];
+  @override
+  Future<List<Track>> search(String query) async => const [];
+  @override
+  Future<StreamInfo> resolveStream(Track track, {bool video = false}) async => const StreamInfo('https://example.test/x.m4a');
+  @override
+  DownloadCapability downloadCapability(Track track) => DownloadCapability.allowed;
+  @override
+  Future<StreamInfo?> resolveDownload(Track track) async =>
+      const StreamInfo('https://example.test/x.m4a', mime: 'audio/mpeg', headers: {'x-nok-chunked': '1'});
 }
 
 /// Minimal provider with one downloadable track, for the download tests.

@@ -84,7 +84,12 @@ class _QueuePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final pc = context.watch<PlaybackController>();
     final cs = Theme.of(context).colorScheme;
-    final q = pc.queues.queues[index];
+    // Deleting a queue shrinks the PageView while it still sits on the deleted
+    // page, so the builder can be asked for an index that no longer exists
+    // (RangeError -> red screen). Ignore stale pages until the next frame.
+    final qs = pc.queues.queues;
+    if (index < 0 || index >= qs.length) return const SizedBox.shrink();
+    final q = qs[index];
     final active = index == pc.queues.active;
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Padding(

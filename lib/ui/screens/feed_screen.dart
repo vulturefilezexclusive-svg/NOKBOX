@@ -125,6 +125,10 @@ class FeedSectionView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A section with no items used to reach `section.items.first` for its
+    // carousel height and throw (an empty shelf from any provider is normal:
+    // a search with no hits, a filtered feed, a feed that answered oddly).
+    if (section.items.isEmpty) return const SizedBox.shrink();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       SectionHeader(section.title, subtitle: section.subtitle),
       if (section.layout == FeedLayout.list)
