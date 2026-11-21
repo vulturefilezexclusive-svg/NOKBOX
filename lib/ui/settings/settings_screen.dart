@@ -385,7 +385,7 @@ class DiagnosticsScreen extends StatelessWidget {
       appBar: AppBar(title: const Text('Diagnostics')),
       body: ValueListenableBuilder<int>(
         valueListenable: Diag.changes,
-        builder: (context, _, __) {
+        builder: (context, _, _) {
           final reports = Diag.reports();
           return ListView(padding: const EdgeInsets.all(16), children: [
             Text(Diag.flagged || reports.isNotEmpty ? '${reports.length} problem report(s) saved.' : 'No problems recorded. The log clears itself while everything works.'),
