@@ -358,7 +358,7 @@ class AboutScreen extends StatelessWidget {
         const SizedBox(height: 14),
         const NokWordmark(size: 34, tagline: true),
         const SizedBox(height: 8),
-        const Text('Version 0.2.0'),
+        const Text('Version 0.2.1'),
         const SectionHeader('Credits', padding: EdgeInsets.fromLTRB(0, 20, 0, 8)),
         const Text('• LRCLIB — open synced lyrics (lrclib.net)\n'
             '• AutoEQ — headphone EQ by Jaakko Pasanen (MIT); measurements by oratory1990, Rtings, Innerfidelity & others\n'

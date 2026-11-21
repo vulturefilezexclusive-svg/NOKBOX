@@ -107,8 +107,11 @@ class YoutubeProvider extends SourceProvider {
     return out;
   }
 
-  Future<List<FeedSection>> _innertubeFeed(String browseId, String title) async {
-    final j = await account.innertube('browse', {'browseId': browseId});
+  /// Walks any InnerTube JSON tree and collects video tracks
+  /// (videoRenderer / compactVideoRenderer / gridVideoRenderer /
+  /// lockupViewModel), deduped by video id. Shared by the home feed and
+  /// search so there is only one InnerTube parser.
+  List<Track> _walkInnertube(dynamic j) {
     final items = <Track>[];
     final seen = <String>{};
     void walk(dynamic n) {
@@ -132,6 +135,12 @@ class YoutubeProvider extends SourceProvider {
     }
 
     walk(j);
+    return items;
+  }
+
+  Future<List<FeedSection>> _innertubeFeed(String browseId, String title) async {
+    final j = await account.innertube('browse', {'browseId': browseId});
+    final items = _walkInnertube(j);
     if (items.isEmpty) return const [];
     final out = <FeedSection>[];
     for (var i = 0; i < items.length && out.length < 3; i += 20) {
@@ -192,8 +201,17 @@ class YoutubeProvider extends SourceProvider {
 
   @override
   Future<List<Track>> search(String query) async {
-    final res = await _yt.search.search(query);
-    return [for (final v in res) _toTrack(v)];
+    // InnerTube POST, not the youtube.com/results HTML scrape: YouTube now
+    // redirect-loops the scrape (bot/abuse check) while the API keeps
+    // answering. Results are parsed with the same walk as the home feed.
+    // No fallback to the scrape — it is the broken path.
+    try {
+      final j = await account.innertube('search', {'query': query});
+      return _walkInnertube(j);
+    } catch (e) {
+      Diag.warn('yt.search', 'InnerTube search failed for "$query": $e');
+      return const [];
+    }
   }
 
   Track _toTrack(yt.Video v) {
@@ -228,22 +246,44 @@ class YoutubeProvider extends SourceProvider {
 
   // ---------------- Streams ----------------
 
-  final _cache = <String, (yt.StreamManifest, String, DateTime)>{};
+  /// Cached manifest + the UA its URLs need + the first audio stream that
+  /// passed a probe (the URL resolveStream/resolveDownload hand out) +
+  /// fetch time.
+  final _cache = <String, (yt.StreamManifest, String, yt.AudioOnlyStreamInfo?, DateTime)>{};
 
-  /// Returns a manifest plus the User-Agent its URLs must be fetched with.
-  Future<(yt.StreamManifest, String)> _manifest(String videoId) async {
+  /// Drop one video's cached manifest so the next resolve re-fetches it
+  /// (used after an open failure — googlevideo URLs expire).
+  void invalidateManifest(String videoId) => _cache.remove(videoId);
+
+  /// Returns a manifest, the User-Agent its URLs must be fetched with, and
+  /// the audio stream whose URL passed a probe (null when the manifest has
+  /// no separate audio — the player then uses muxed/HLS instead).
+  Future<(yt.StreamManifest, String, yt.AudioOnlyStreamInfo?)> _manifest(String videoId) async {
     final c = _cache[videoId];
-    if (c != null && DateTime.now().difference(c.$3) < const Duration(hours: 4)) return (c.$1, c.$2);
+    if (c != null && DateTime.now().difference(c.$4) < const Duration(hours: 4)) return (c.$1, c.$2, c.$3);
     final errors = <String>[];
     for (final (name, client, ua) in _clients) {
       try {
         final m = await _yt.videos.streams.getManifest(videoId, ytClients: [client]);
         if (m.audioOnly.isEmpty && m.muxed.isEmpty && m.hls.isEmpty) throw Exception('empty manifest');
-        final probe = m.audioOnly.isNotEmpty ? m.audioOnly.first.url : (m.muxed.isNotEmpty ? m.muxed.first.url : m.hls.first.url);
-        if (!await _probe(probe, ua)) throw Exception('stream URL rejected');
+        yt.AudioOnlyStreamInfo? verified;
+        if (m.audioOnly.isNotEmpty) {
+          // Probe the URL that will actually be played/downloaded (best
+          // first), not a sibling: v0.2.0 probed audioOnly.first but played
+          // and downloaded _bestAudio — a different, unvalidated URL that
+          // googlevideo 403s.
+          verified = await _verifyAudio(videoId, m, ua);
+          if (verified == null) throw Exception('stream URL rejected');
+        } else {
+          // No separate audio: the player uses muxed (or HLS) — probe that.
+          final fallback = m.muxed.isNotEmpty ? m.muxed.withHighestBitrate().url : m.hls.first.url;
+          final code = await _probe(fallback, ua);
+          Diag.info('yt.probe', '$videoId muxed -> $code');
+          if (code == 0 || code >= 400) throw Exception('stream URL rejected');
+        }
         Diag.info('yt.manifest', '$videoId via $name');
-        _cache[videoId] = (m, ua, DateTime.now());
-        return (m, ua);
+        _cache[videoId] = (m, ua, verified, DateTime.now());
+        return (m, ua, verified);
       } catch (e) {
         errors.add('$name: ${e.toString().split('\n').first}');
       }
@@ -252,7 +292,11 @@ class YoutubeProvider extends SourceProvider {
     throw Exception('YouTube stream unavailable (${errors.length} clients tried)');
   }
 
-  static Future<bool> _probe(Uri url, String ua) async {
+  /// Range-probe a stream URL. Returns the HTTP status code (0 when the
+  /// request itself failed); only 0 < code < 400 means "the real fetch
+  /// will probably succeed". Mirrors the real request: same UA header and
+  /// a 0-1023 byte range, like the download manager's head probe.
+  static Future<int> _probe(Uri url, String ua) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
     try {
       final req = await client.getUrl(url);
@@ -260,12 +304,31 @@ class YoutubeProvider extends SourceProvider {
       req.headers.set(HttpHeaders.rangeHeader, 'bytes=0-1023');
       final res = await req.close().timeout(const Duration(seconds: 10));
       await res.drain<void>();
-      return res.statusCode < 400;
+      return res.statusCode;
     } catch (_) {
-      return false;
+      return 0;
     } finally {
       client.close(force: true);
     }
+  }
+
+  /// Probes audio candidates in play order and returns the first stream
+  /// whose URL answers (null when every candidate was rejected).
+  Future<yt.AudioOnlyStreamInfo?> _verifyAudio(String videoId, yt.StreamManifest m, String ua) async {
+    for (final s in _audioCandidates(m)) {
+      final code = await _probe(s.url, ua);
+      Diag.info('yt.probe', '$videoId itag=${s.tag} -> $code');
+      if (code > 0 && code < 400) return s;
+    }
+    return null;
+  }
+
+  /// Audio streams in the order they would be played/downloaded: the
+  /// `_bestAudio` pick first, then the rest by bitrate desc.
+  List<yt.AudioOnlyStreamInfo> _audioCandidates(yt.StreamManifest m) {
+    final best = _bestAudio(m);
+    final rest = m.audioOnly.where((s) => !identical(s, best)).toList()..sort((a, b) => b.bitrate.compareTo(a.bitrate));
+    return [best, ...rest];
   }
 
   yt.AudioOnlyStreamInfo _bestAudio(yt.StreamManifest m) {
@@ -278,7 +341,7 @@ class YoutubeProvider extends SourceProvider {
 
   @override
   Future<StreamInfo> resolveStream(Track track, {bool video = false}) async {
-    final (m, ua) = await _manifest(track.remoteId!);
+    final (m, ua, verified) = await _manifest(track.remoteId!);
     final headers = {'User-Agent': ua};
     final exp = DateTime.now().add(const Duration(hours: 4));
     if (video) {
@@ -294,7 +357,10 @@ class YoutubeProvider extends SourceProvider {
       if (m.muxed.isNotEmpty) return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, expiresAt: exp);
       throw Exception('No audio stream');
     }
-    final s = _bestAudio(m);
+    // Play the stream whose URL passed its probe — never an unvalidated
+    // sibling of it. (Falls back to _bestAudio only if the cache predates
+    // the probe, which cannot happen for fresh manifests.)
+    final s = verified ?? _bestAudio(m);
     return StreamInfo(s.url.toString(), headers: headers, expiresAt: exp, mime: s.container == yt.StreamContainer.mp4 ? 'audio/mp4' : 'audio/webm');
   }
 
@@ -304,13 +370,19 @@ class YoutubeProvider extends SourceProvider {
   /// Audio downloads are m4a (AAC); with "Download video" on, the muxed mp4.
   @override
   Future<StreamInfo?> resolveDownload(Track track) async {
-    final (m, ua) = await _manifest(track.remoteId!);
+    final (m, ua, verified) = await _manifest(track.remoteId!);
     final headers = {'User-Agent': ua, 'x-nok-chunked': '1'};
     if (settings.youtubeDownloadVideo && m.muxed.isNotEmpty) {
       return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, isVideo: true, mime: 'video/mp4');
     }
+    if (m.audioOnly.isEmpty) {
+      if (m.muxed.isNotEmpty) return StreamInfo(m.muxed.withHighestBitrate().url.toString(), headers: headers, mime: 'video/mp4');
+      throw Exception('No audio stream');
+    }
+    // Download the probed candidate, not the unvalidated best-mp4 pick:
+    // v0.2.0's download 403d because the manifest only probed audioOnly.first.
     final mp4 = m.audioOnly.where((s) => s.container == yt.StreamContainer.mp4).toList()..sort((a, b) => b.bitrate.compareTo(a.bitrate));
-    final s = mp4.isNotEmpty ? mp4.first : _bestAudio(m);
+    final s = verified ?? (mp4.isNotEmpty ? mp4.first : _bestAudio(m));
     return StreamInfo(s.url.toString(), headers: headers, mime: s.container == yt.StreamContainer.mp4 ? 'audio/mp4' : 'audio/webm');
   }
 }

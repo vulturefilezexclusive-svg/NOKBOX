@@ -14,7 +14,7 @@ Future<void> main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
     try {
-      await Diag.init((await getApplicationSupportDirectory()).path, info: 'NOKBOX 0.2.0');
+      await Diag.init((await getApplicationSupportDirectory()).path, info: 'NOKBOX 0.2.1');
     } catch (_) {}
     Diag.installHooks();
     MediaKit.ensureInitialized();

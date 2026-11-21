@@ -1,7 +1,25 @@
-NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~2:25 AM CST
+NOKBOX — CHANGES v2 (round 2)   updated 2026-11-21 ~2:35 AM CST
 Repo:    https://github.com/vulturefilezexclusive-svg/NOKBOX  (private, branch main)
 Actions: https://github.com/vulturefilezexclusive-svg/NOKBOX/actions
 Round-2 run #1 (commit "YouTube: multi-client stream fallback..."): https://github.com/vulturefilezexclusive-svg/NOKBOX/actions/runs/44880024603
+
+== v0.2.1 (2026-11-21) — YouTube search + playback/download fix ==
+Dylan's v0.2.0 diagnostics: search/shelves redirect-looped (YouTube bot check on the
+HTML scrape); mpv failed to open the resolved stream and the "I See Why" download
+403d — googlevideo rejected the URL itself.
+- Search + shelves now use the InnerTube search API (same renderer walk as the home
+  feed) instead of the youtube.com/results HTML scrape. No scrape fallback.
+- The manifest probe now validates the URL that will actually be played/downloaded
+  (best audio first, then the rest by bitrate); each probe's status code is logged
+  (yt.probe). v0.2.0 probed audioOnly.first but played/downloaded _bestAudio — a
+  different, unvalidated URL.
+- mpv's `user-agent` option is now set per track to the manifest's client UA
+  (reset to the mpv default for other sources), in addition to the HTTP headers.
+- Open failure busts that video's cached manifest and retries once with a fresh
+  manifest before "Couldn't play".
+- Download failures now log the failing itag + HTTP status (Diag 'download').
+Files: lib/sources/providers/youtube_provider.dart, lib/audio/mpv_backend.dart,
+lib/audio/playback_controller.dart, lib/sources/download_manager.dart
 
 == DONE (pushed) ==
 1. YouTube streams fixed (root cause found)

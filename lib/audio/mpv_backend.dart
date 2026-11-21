@@ -74,6 +74,11 @@ class MpvAudioBackend implements AudioBackend {
 
   @override
   Future<void> open(StreamInfo s, {Duration? start, bool play = true}) async {
+    // mpv's own requests (stream open, seeks) use the `user-agent` option,
+    // not the per-media HTTP headers — so set it per track. Sources without
+    // a UA get mpv's default back, so a YouTube client UA never leaks into
+    // podcast / radio / archive requests (or local files, which need none).
+    await setOption('user-agent', s.headers['User-Agent'] ?? 'libmpv');
     await player.open(Playlist([_media(s, start: start)]), play: play);
   }
 

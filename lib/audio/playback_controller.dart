@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import '../core/settings.dart';
 import '../data/database.dart';
 import '../data/models.dart';
+import '../sources/providers/youtube_provider.dart';
 import '../sources/source_matcher.dart';
 import '../sources/source_registry.dart';
 import 'audio_backend.dart';
@@ -76,6 +77,12 @@ class PlaybackController extends ChangeNotifier {
   String? lastError;
   Track? switchedFrom;
   Timer? _persistDebounce;
+
+  /// YouTube video ids that already got their one fresh-manifest retry for
+  /// the current play attempt. (The `tried` set can't guard this alone:
+  /// mpv open failures arrive async via _onBackendError with a fresh set.)
+  /// Cleared for a track when a fresh play attempt for it starts.
+  final _ytRetried = <String>{};
 
   // Sleep timer
   SleepMode sleepMode = SleepMode.off;
@@ -331,6 +338,9 @@ class PlaybackController extends ChangeNotifier {
     final token = ++_loadToken;
     queue.index = i;
     final t = queue.items[i];
+    // Fresh play attempt (not a retry): the track may earn its one
+    // fresh-manifest retry again.
+    if (tried.isEmpty) _ytRetried.remove(t.remoteId);
     lastError = null;
     _preloaded = false;
     _preloadedTrack = null;
@@ -370,6 +380,18 @@ class PlaybackController extends ChangeNotifier {
         queue.items[i] = alt;
         _messages.add('Switched to ${alt.source == SourceIds.local ? 'your library' : alt.source}');
         await _playIndex(i, autoplay: autoplay, tried: tried);
+        return;
+      }
+    }
+    // YouTube: the cached manifest may have gone stale (expired googlevideo
+    // URL). Bust it and retry once with a fresh manifest before giving up.
+    if (t.source == SourceIds.youtube && t.remoteId != null && !_ytRetried.contains(t.remoteId)) {
+      final provider = registry.byId(SourceIds.youtube);
+      if (provider is YoutubeProvider) {
+        _ytRetried.add(t.remoteId!);
+        provider.invalidateManifest(t.remoteId!);
+        _messages.add('Retrying ${t.title} with a fresh stream…');
+        await _playIndex(i, autoplay: autoplay, tried: {...tried, 'yt-retry:${t.remoteId}'});
         return;
       }
     }

@@ -94,15 +94,24 @@ class DownloadManager extends ChangeNotifier {
 
   static String safeName(String s) => s.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  /// itag from a googlevideo URL query (null for other sources).
+  static String? _itagOf(String? url) {
+    if (url == null) return null;
+    return Uri.tryParse(url)?.queryParameters['itag'];
+  }
+
   Future<void> _run(DownloadTask task) async {
     task.status = DownloadStatus.running;
     notifyListeners();
     IOSink? sink;
     File? tmp;
+    String? infoUrl;
+    int? lastStatus;
     try {
       final provider = registry.providerFor(task.track);
       final info = await provider?.resolveDownload(task.track);
       if (info == null) throw Exception('No permitted download for this track');
+      infoUrl = info.url;
       final chunked = info.headers.containsKey('x-nok-chunked');
       final headers = {'User-Agent': nokUserAgent, ...info.headers}..remove('x-nok-chunked');
       // YouTube throttles/aborts single long requests, so fetch in ranges.
@@ -112,7 +121,9 @@ class DownloadManager extends ChangeNotifier {
         const step = 9 * 1024 * 1024;
         final head = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=0-0'}));
         await head.stream.drain<void>();
-        if (head.statusCode >= 400) throw Exception('HTTP ${head.statusCode}');
+        final headStatus = head.statusCode;
+        lastStatus = headStatus;
+        if (headStatus >= 400) throw Exception('HTTP $headStatus');
         final cr = head.headers['content-range'] ?? '';
         task.total = int.tryParse(cr.split('/').last) ?? 0;
         ct = info.mime ?? head.headers['content-type'] ?? '';
@@ -122,7 +133,9 @@ class DownloadManager extends ChangeNotifier {
           while (total == 0 || start < total) {
             final end = total == 0 ? start + step - 1 : (start + step - 1).clamp(0, total - 1);
             final r = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=$start-$end'}));
-            if (r.statusCode >= 400) throw Exception('HTTP ${r.statusCode}');
+            final rangeStatus = r.statusCode;
+            lastStatus = rangeStatus;
+            if (rangeStatus >= 400) throw Exception('HTTP $rangeStatus');
             var got = 0;
             await for (final c in r.stream) {
               got += c.length;
@@ -135,7 +148,9 @@ class DownloadManager extends ChangeNotifier {
         body = ranges();
       } else {
         final res = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll(headers));
-        if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+        final getStatus = res.statusCode;
+        lastStatus = getStatus;
+        if (getStatus >= 400) throw Exception('HTTP $getStatus');
         task.total = res.contentLength ?? 0;
         ct = info.mime ?? res.headers['content-type'] ?? '';
         body = res.stream;
@@ -164,7 +179,9 @@ class DownloadManager extends ChangeNotifier {
     } catch (e) {
       task.status = DownloadStatus.failed;
       task.error = '$e';
-      Diag.error('download', 'Failed: ${task.track.title}', error: e);
+      // Pinpoint the dead stream: itag from the URL + the HTTP status, so
+      // the next export shows which stream died instead of a bare 403.
+      Diag.error('download', 'Failed: ${task.track.title}', error: e, details: 'itag=${_itagOf(infoUrl) ?? '?'} status=${lastStatus ?? '?'}');
     } finally {
       await sink?.close();
       if (task.status != DownloadStatus.done && tmp != null && tmp.existsSync()) {
