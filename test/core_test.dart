@@ -38,7 +38,7 @@ void main() {
   });
 
   test('AutoEQ parametric parse + mpv chain', () {
-    const txt = 'Preamp: -6.2 dB\\nFilter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70\\nFilter 2: ON PK Fc 2200 Hz Gain -3.1 dB Q 1.41\\n';
+    const txt = 'Preamp: -6.2 dB\nFilter 1: ON LSC Fc 105 Hz Gain 5.5 dB Q 0.70\nFilter 2: ON PK Fc 2200 Hz Gain -3.1 dB Q 1.41\n';
     final p = AutoEqParser.parse(txt, name: 'x');
     expect(p.preampDb, -6.2);
     expect(p.bands.length, 2);
@@ -61,7 +61,7 @@ void main() {
   });
 
   test('LRC parsing incl. multiple stamps and offset', () {
-    final l = parseLrc('[offset:+100]\\n[00:01.00][00:05.50]Yeah\\n[00:03.20]Uh huh');
+    final l = parseLrc('[offset:+100]\n[00:01.00][00:05.50]Yeah\n[00:03.20]Uh huh');
     expect(l.lines.length, 3);
     expect(l.lines[1].text, 'Uh huh');
     expect(l.indexAt(const Duration(seconds: 4)), 1);
@@ -124,7 +124,7 @@ void main() {
   });
 
   test('M3U parsing', () {
-    final r = CustomUrlProvider.parsePlaylist('#EXTM3U\\n#EXTINF:-1,Hot 97\\nhttp://x/s.mp3\\n', Uri.parse('http://x/'));
+    final r = CustomUrlProvider.parsePlaylist('#EXTM3U\n#EXTINF:-1,Hot 97\nhttp://x/s.mp3\n', Uri.parse('http://x/'));
     expect(r.single.$2, 'Hot 97');
   });
 
