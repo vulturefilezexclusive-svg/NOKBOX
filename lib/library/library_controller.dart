@@ -15,7 +15,10 @@ enum TrackSort { title, artist, album, year, dateAdded, duration, size, mostPlay
 
 /// Unified library: local files plus favourited/downloaded remote tracks.
 class LibraryController extends ChangeNotifier {
-  LibraryController({required this.db, required this.settings, required this.documentsDir, required this.artDir});
+  LibraryController({required this.db, required this.settings, required this.documentsDir, required this.artDir}) {
+    _viewPrint = _computeViewPrint();
+    settings.addListener(_onSettingsChanged);
+  }
 
   final NokDatabase db;
   final SettingsStore settings;
@@ -34,6 +37,12 @@ class LibraryController extends ChangeNotifier {
   String? lastScanSummary;
   final List<StreamSubscription<FileSystemEvent>> _watchers = [];
   Timer? _watchDebounce;
+  Timer? _settingsDebounce;
+
+  /// Minimum duration the stored catalog was indexed with, kept in the database
+  /// so the value also survives a restart.
+  static const _durationKey = 'library.indexedMinDurationSec';
+  String _viewPrint = '';
 
   List<Track> get tracks => _tracks;
   List<Track> get videos => _tracks.where((t) => t.isVideo).toList();
@@ -61,7 +70,15 @@ class LibraryController extends ChangeNotifier {
     if (_scanning) return null;
     _scanning = true;
     notifyListeners();
+    var completed = false;
     try {
+      final known = Map.fromEntries(db.trackMtimes().entries.where((e) => e.key.startsWith('local:')));
+      // An unchanged mtime only says the file is the same; it says nothing
+      // about whether the file still passes the *current* filters. When the
+      // duration floor changed, every tag must be read again so tracks that
+      // are now too short get dropped.
+      final minDuration = '${settings.minDurationSec}';
+      final sameFilters = db.kvGet(_durationKey) == minDuration;
       final r = await runIndexer(IndexOptions(
         roots: roots,
         excluded: settings.excludedFolders,
@@ -69,16 +86,47 @@ class LibraryController extends ChangeNotifier {
         minDurationSec: settings.minDurationSec,
         minSizeKb: settings.minSizeKb,
         includeVideos: settings.includeVideos,
-        known: Map.fromEntries(db.trackMtimes().entries.where((e) => e.key.startsWith('local:'))),
+        known: sameFilters ? known : const {},
       ));
       if (r.added.isNotEmpty) db.upsertTracks(r.added);
       if (r.removedIds.isNotEmpty) db.deleteTracks(r.removedIds);
+      db.kvSet(_durationKey, minDuration);
+      _viewPrint = _computeViewPrint();
       lastScanSummary = '${r.added.length} new/updated · ${r.removedIds.length} removed · ${r.unchanged} unchanged · ${r.skipped} filtered';
+      completed = true;
       _rebuild(db.allTracks());
       return r;
     } finally {
       _scanning = false;
       notifyListeners();
+      // A settings change that arrived mid-scan was refused by the guard above;
+      // run again so the library never keeps the old filters.
+      if (completed && db.kvGet(_durationKey) != '${settings.minDurationSec}') {
+        _settingsDebounce?.cancel();
+        _settingsDebounce = Timer(const Duration(milliseconds: 300), rescan);
+      }
+    }
+  }
+
+  String _computeViewPrint() => [
+        settings.filterDuplicates,
+        settings.extractFeat,
+        ...settings.artistSeparators,
+        ...settings.genreSeparators,
+      ].join('\u0000');
+
+  /// Grouping settings (duplicates, feat., separators) never change what is
+  /// indexed, so a rebuild is enough; the duration floor needs a real rescan.
+  void _onSettingsChanged() {
+    final view = _computeViewPrint();
+    if (view != _viewPrint) {
+      _viewPrint = view;
+      _rebuild(db.allTracks());
+      notifyListeners();
+    }
+    if (db.kvGet(_durationKey) != '${settings.minDurationSec}') {
+      _settingsDebounce?.cancel();
+      _settingsDebounce = Timer(const Duration(milliseconds: 800), rescan);
     }
   }
 
@@ -160,6 +208,9 @@ class LibraryController extends ChangeNotifier {
   }
 
   List<Track> sorted(List<Track> input, TrackSort sort, {bool desc = false}) {
+    // One query for the whole list: the comparator used to run COUNT(*) per
+    // comparison (n log n queries) and could freeze the UI on large libraries.
+    final plays = sort == TrackSort.mostPlayed ? db.playCounts() : const <String, int>{};
     int cmp(Track a, Track b) {
       switch (sort) {
         case TrackSort.title:
@@ -177,7 +228,7 @@ class LibraryController extends ChangeNotifier {
         case TrackSort.size:
           return a.sizeBytes.compareTo(b.sizeBytes);
         case TrackSort.mostPlayed:
-          return db.playCount(a.id).compareTo(db.playCount(b.id));
+          return (plays[a.id] ?? 0).compareTo(plays[b.id] ?? 0);
         case TrackSort.filename:
           return p.basename(a.uri).compareTo(p.basename(b.uri));
       }
@@ -259,6 +310,8 @@ class LibraryController extends ChangeNotifier {
 
   @override
   void dispose() {
+    settings.removeListener(_onSettingsChanged);
+    _settingsDebounce?.cancel();
     for (final w in _watchers) {
       w.cancel();
     }
