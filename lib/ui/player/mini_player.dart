@@ -6,10 +6,15 @@ import '../root_shell.dart';
 import '../settings/equalizer_screen.dart';
 import '../widgets/common.dart';
 
-/// Persistent mini player: tap to expand, swipe up to expand, swipe
-/// left/right to skip, progress line on top.
+/// Persistent mini player: tap to expand, swipe up to expand, swipe down to
+/// slide the bar away, swipe left/right to skip, progress line on top.
 class MiniPlayer extends StatelessWidget {
-  const MiniPlayer({super.key});
+  const MiniPlayer({super.key, this.onHide});
+
+  /// Called when the bar is swiped down or its chevron is tapped. The host
+  /// remembers the choice, so the bar stays out of the way until it is asked
+  /// for again.
+  final VoidCallback? onHide;
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +27,12 @@ class MiniPlayer extends StatelessWidget {
     return GestureDetector(
       onTap: () => RootShell.openPlayer(context),
       onVerticalDragEnd: (d) {
-        if ((d.primaryVelocity ?? 0) < -200) RootShell.openPlayer(context);
+        final v = d.primaryVelocity ?? 0;
+        if (v < -200) {
+          RootShell.openPlayer(context);
+        } else if (v > 200) {
+          onHide?.call();
+        }
       },
       onHorizontalDragEnd: (d) {
         final v = d.primaryVelocity ?? 0;
@@ -55,18 +65,92 @@ class MiniPlayer extends StatelessWidget {
                   ),
                 ]),
               ),
-              IconButton(icon: const Icon(Icons.equalizer_rounded), tooltip: 'Equalizer', onPressed: () => showEqBottomSheet(context)),
-              IconButton(icon: const Icon(Icons.skip_previous_rounded), onPressed: pc.previous),
+              _BarIcon(icon: Icons.equalizer_rounded, tooltip: 'Equalizer', onPressed: () => showEqBottomSheet(context)),
+              _BarIcon(icon: Icons.keyboard_arrow_down_rounded, tooltip: 'Hide player bar', onPressed: onHide, width: 32),
+              _BarIcon(icon: Icons.skip_previous_rounded, tooltip: 'Previous', size: 22, onPressed: pc.previous),
               IconButton.filled(
                 icon: pc.buffering
                     ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.4, color: cs.onPrimary))
                     : Icon(pc.playing ? Icons.pause_rounded : Icons.play_arrow_rounded),
                 onPressed: pc.togglePlay,
               ),
-              IconButton(icon: const Icon(Icons.skip_next_rounded), onPressed: pc.next),
+              _BarIcon(icon: Icons.skip_next_rounded, tooltip: 'Next', size: 22, onPressed: pc.next),
             ]),
           ),
         ]),
+      ),
+    );
+  }
+}
+
+/// Compact icon button so the bar keeps title space on narrow screens.
+class _BarIcon extends StatelessWidget {
+  const _BarIcon({required this.icon, required this.tooltip, this.onPressed, this.size = 20, this.width = 34});
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+  final double size;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: width,
+        height: 38,
+        child: IconButton(
+          icon: Icon(icon, size: size),
+          tooltip: tooltip,
+          padding: EdgeInsets.zero,
+          visualDensity: VisualDensity.compact,
+          constraints: const BoxConstraints(),
+          onPressed: onPressed,
+        ),
+      );
+}
+
+/// The discreet thing left behind when the mini player is slid away: playback
+/// progress plus a grabber. Tap it (or swipe up) to bring the bar back.
+class MiniPlayerHandle extends StatelessWidget {
+  const MiniPlayerHandle({super.key, required this.onShow});
+  final VoidCallback onShow;
+
+  @override
+  Widget build(BuildContext context) {
+    final pc = context.watch<PlaybackController>();
+    final cs = Theme.of(context).colorScheme;
+    final total = pc.duration.inMilliseconds;
+    final frac = total > 0 ? (pc.position.inMilliseconds / total).clamp(0.0, 1.0) : 0.0;
+    return Semantics(
+      button: true,
+      label: 'Show the player bar',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: onShow,
+        onVerticalDragEnd: (d) {
+          if ((d.primaryVelocity ?? 0) < -120) onShow();
+        },
+        child: SizedBox(
+          height: 24,
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(2),
+                child: LinearProgressIndicator(
+                  value: frac,
+                  minHeight: 2,
+                  backgroundColor: cs.onSurface.withValues(alpha: 0.12),
+                  color: cs.primary.withValues(alpha: 0.9),
+                ),
+              ),
+            ),
+            const SizedBox(height: 5),
+            Container(
+              width: 34,
+              height: 3,
+              decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(2)),
+            ),
+          ]),
+        ),
       ),
     );
   }

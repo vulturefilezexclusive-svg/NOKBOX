@@ -104,6 +104,11 @@ class SettingsStore extends ChangeNotifier {
 
   // ---- UI ----
   bool get simpleMode => get('simpleMode', false);
+
+  /// The mini player bar above the tab bar can be slid away; the choice is
+  /// remembered so it stays out of the way until the user brings it back.
+  bool get miniPlayerHidden => get('miniPlayerHidden', false);
+  set miniPlayerHidden(bool v) => set('miniPlayerHidden', v);
   bool get waveformSeekbar => get('waveformSeekbar', true);
   bool get showVolumeOnPlayer => get('showVolumeOnPlayer', true);
   bool get batterySaver => get('batterySaver', false);

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../app_globals.dart';
 import '../audio/playback_controller.dart';
 import '../core/diagnostics.dart';
+import '../core/settings.dart';
 import '../core/theme/theme_controller.dart';
 import 'player/full_player.dart';
 import 'player/mini_player.dart';
@@ -74,6 +75,9 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final hasTrack = context.select<PlaybackController, bool>((p) => p.current != null);
+    // The mini player can be slid away; the setting outlives the app session.
+    final barHidden = context.select<SettingsStore, bool>((s) => s.miniPlayerHidden);
+    final settings = context.read<SettingsStore>();
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -89,7 +93,15 @@ class _RootShellState extends State<RootShell> with WidgetsBindingObserver {
           _tabNav(4, const SettingsScreen()),
         ]),
         bottomNavigationBar: Column(mainAxisSize: MainAxisSize.min, children: [
-          if (hasTrack) const MiniPlayer(),
+          if (hasTrack)
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOutCubic,
+              alignment: Alignment.bottomCenter,
+              child: barHidden
+                  ? MiniPlayerHandle(onShow: () => settings.miniPlayerHidden = false)
+                  : MiniPlayer(onHide: () => settings.miniPlayerHidden = true),
+            ),
           NavigationBar(
             selectedIndex: _tab,
             onDestinationSelected: (i) {
