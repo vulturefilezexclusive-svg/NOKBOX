@@ -2,7 +2,7 @@
 
 Reviewed the app source (59 Dart files, ~10,100 lines) with the project's own
 analyzer, linter config and unit tests. This branch fixes six real defects,
-cleans up lint noise and adds six regression tests. It is stacked on
+cleans up lint noise and adds seven regression tests. It is stacked on
 `qa/fixes-from-review` (pull request #1), which holds the first four fixes;
 `main` is untouched.
 
@@ -15,7 +15,7 @@ Toolchain: Flutter 3.50.1 / Dart 3.14.1, `analysis_options.yaml` as committed.
 | `flutter analyze` errors | 0 | **0** |
 | `flutter analyze` warnings | 0 | **0** |
 | `flutter analyze` infos | 8 | **2** (both retained deliberately) |
-| `flutter test` | 10 passed | **16 passed** |
+| `flutter test` | 10 passed | **17 passed** |
 
 The codebase was already healthy: no compile errors and no failing tests. The
 value here is the defects fixed below plus the regression tests.
@@ -80,9 +80,11 @@ filtered out, forever.
 - The indexer now applies the size check before the incremental shortcut and
   reports files that were seen but filtered as `removedIds`, so they leave the
   catalog.
-- The scanner records the duration floor it indexed with (in the database, so it
-  survives restarts). When the floor changes, the mtime shortcut is dropped and
-  every tag is read again, which is the only way to apply a higher floor.
+- The scanner records the filters it indexed with (the duration floor plus a
+  size/videos fingerprint) in the database, so a restart cannot hide a change.
+  When the duration floor changes the mtime shortcut is dropped and every tag is
+  read again, which is the only way to apply a higher floor; size and video
+  changes are applied by the next scan, which is now always scheduled.
 - The library listens to settings: grouping-only settings (duplicate filtering,
   feat. extraction, artist separators) rebuild the catalog immediately, and
   index-filter changes schedule a debounced rescan. A change that arrives while
@@ -117,6 +119,9 @@ single grouped query (`playCounts()`) and compared in memory.
 - "indexer reports files that no longer pass the size filter" — covers fix 5.
 - "a changed minimum duration re-reads files instead of trusting mtimes" —
   covers fix 5.
+- "changing the minimum size schedules a rescan" — covers fix 5 too: raising the
+  size floor while the app is running must schedule a scan, not just write the
+  setting.
 - "a truncated download fails instead of being marked done" — covers fix 6
   (real `DownloadManager` against a mocked HTTP stream).
 
@@ -145,19 +150,19 @@ SHA GitHub stores for it.
 | `lib/core/diagnostics.dart` | `95dbadaa09ecb2bdc3e066546ab96c6d0e276076` |
 | `lib/data/database.dart` | `79f8cbba43b662bbd3a957ff84e1d01abf4e77d6` |
 | `lib/library/indexer.dart` | `217127efafb75f2956651aeb8dad5259ac812053` |
-| `lib/library/library_controller.dart` | `a2fa01e7f0a183efab5e5ecde450e5e715f88547` |
+| `lib/library/library_controller.dart` | `11b89544d168948e8ecb39b599bd7edcdb2c62ee` |
 | `lib/sources/download_manager.dart` | `3d193ed9ea39c51d8894c697d3a8b34299b0c901` |
 | `lib/sources/providers/archive_provider.dart` | `03e118bd0f6c1b4a20cb169e28f09c9252813d85` |
 | `lib/sources/providers/podcast_provider.dart` | `daf6912f1bdef3888e2a6524fd563c1c5e731424` |
 | `lib/sources/youtube/sponsorblock.dart` | `46b1a6e5d1f6db5d706f494c064b8f52b6fbb21d` |
 | `lib/ui/settings/settings_screen.dart` | `2a3d4259fd10aa779fc3e308e3a7c97ca2fb5ed4` |
-| `test/core_test.dart` | `03fba970cdb5e833d3ca2b8c2f2a5f10273e2f25` |
+| `test/core_test.dart` | `e9e3aeaa5a47b5e402ec354470c24a6ebd69bdd3` |
 
 Commands run on that tree:
 
 ```
 flutter analyze   -> 0 errors, 0 warnings, 2 infos
-flutter test      -> 16 passed, 0 failed
+flutter test      -> 17 passed, 0 failed
 ```
 
 (`flutter analyze` exits non-zero when any issue is present; the CI workflow
@@ -172,7 +177,8 @@ on `pull_request`. On this branch the `ios` job completed every step — Analyze
 Unit tests, Build iOS (no codesign), Package NOKBOX.ipa, the AltStore source and
 the artifact upload — while the tag-only release step was correctly skipped by
 its condition. The unsigned `.ipa` is uploaded as the `NOKBOX-ipa-<sha>`
-artifact; the run and artifact ids are recorded in pull request #2.
+artifact; the run, job ids and artifact name, size and digest for this revision
+are recorded in pull request #2.
 
 ## Not verified
 
