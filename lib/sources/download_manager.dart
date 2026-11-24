@@ -123,42 +123,93 @@ class DownloadManager extends ChangeNotifier {
       if (chunked) {
         const step = 9 * 1024 * 1024;
         final head = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=0-0'}));
-        await head.stream.drain<void>();
         final headStatus = head.statusCode;
         lastStatus = headStatus;
-        if (headStatus >= 400) throw Exception('HTTP $headStatus');
-        final cr = head.headers['content-range'] ?? '';
-        task.total = int.tryParse(cr.split('/').last) ?? 0;
+        if (headStatus < 200 || headStatus >= 300) {
+          await head.stream.drain<void>();
+          throw Exception('HTTP $headStatus');
+        }
         ct = info.mime ?? head.headers['content-type'] ?? '';
-        var total = task.total;
-        Stream<List<int>> ranges() async* {
-          var start = 0;
-          while (total == 0 || start < total) {
-            final end = total == 0 ? start + step - 1 : (start + step - 1).clamp(0, total - 1);
-            final r = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=$start-$end'}));
-            final rangeStatus = r.statusCode;
-            lastStatus = rangeStatus;
-            if (rangeStatus >= 400) throw Exception('HTTP $rangeStatus');
-            // 206 = the range was honoured. A 200 means the server ignored
-            // `Range` and sent the whole body, so this response is the file:
-            // continuing the loop would ask for the next range and either
-            // duplicate the whole file or, with an unknown total, loop
-            // forever on a download that never finishes.
-            final partial = rangeStatus == 206;
-            if (!partial && total == 0) {
-              total = r.contentLength ?? 0;
-              task.total = total;
+        if (headStatus == 200) {
+          // Server ignored the probe range and returned the complete file.
+          task.total = head.contentLength ?? 0;
+          body = head.stream;
+        } else {
+          final cr = head.headers['content-range'] ?? '';
+          final probe = RegExp(r'^bytes 0-0/(\d+|\*)$').firstMatch(cr);
+          if (headStatus != 206 || probe == null) {
+            await head.stream.drain<void>();
+            throw Exception('Invalid range probe response ($cr)');
+          }
+          task.total = int.tryParse(probe.group(1)!) ?? 0;
+          if (task.total == 1) {
+            body = head.stream;
+          } else {
+            await head.stream.drain<void>();
+            var total = task.total;
+            Stream<List<int>> ranges() async* {
+              var start = 0;
+              while (total == 0 || start < total) {
+                final end = total == 0 ? start + step - 1 : (start + step - 1).clamp(0, total - 1);
+                final r = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll({...headers, 'Range': 'bytes=$start-$end'}));
+                final rangeStatus = r.statusCode;
+                lastStatus = rangeStatus;
+                if (rangeStatus >= 400) throw Exception('HTTP $rangeStatus');
+                if (rangeStatus != 200 && rangeStatus != 206) {
+                  await r.stream.drain<void>();
+                  throw Exception('Invalid range status $rangeStatus');
+                }
+                final partial = rangeStatus == 206;
+                if (!partial) {
+                  if (start != 0) {
+                    await r.stream.drain<void>();
+                    throw Exception('Server stopped honoring byte ranges');
+                  }
+                  total = r.contentLength ?? 0;
+                  task.total = total;
+                }
+                var expected = partial ? (end - start + 1) : null;
+                final contentRange = r.headers['content-range'];
+                if (partial && contentRange != null && contentRange.toLowerCase().startsWith('bytes ')) {
+                  final match = RegExp(r'^bytes (\d+)-(\d+)/(\d+|\*)$').firstMatch(contentRange);
+                  final responseStart = match == null ? null : int.tryParse(match.group(1)!);
+                  final responseEnd = match == null ? null : int.tryParse(match.group(2)!);
+                  final responseTotal = match == null ? null : int.tryParse(match.group(3)!);
+                  if (responseStart != start || responseEnd == null || responseEnd > end || (responseTotal != null && responseEnd >= responseTotal)) {
+                    await r.stream.drain<void>();
+                    throw Exception('Invalid range response ($contentRange)');
+                  }
+                  expected = responseEnd - start + 1;
+                  if (responseTotal != null) {
+                    if (total > 0 && total != responseTotal) {
+                      await r.stream.drain<void>();
+                      throw Exception('Download size changed during transfer');
+                    }
+                    total = responseTotal;
+                    task.total = total;
+                  }
+                } else if (partial) {
+                  await r.stream.drain<void>();
+                  throw Exception('Invalid range response (missing Content-Range)');
+                }
+                var got = 0;
+                await for (final c in r.stream) {
+                  got += c.length;
+                  yield c;
+                }
+                if (expected != null && got != expected) {
+                  throw Exception('Incomplete download range ($got/$expected bytes)');
+                }
+                if (got == 0 || !partial) break;
+                if (start + got < total && got != end - start + 1) {
+                  throw Exception('Incomplete download range ($got/${end - start + 1} bytes)');
+                }
+                start += got;
+              }
             }
-            var got = 0;
-            await for (final c in r.stream) {
-              got += c.length;
-              yield c;
-            }
-            if (got == 0 || !partial) break;
-            start += got;
+            body = ranges();
           }
         }
-        body = ranges();
       } else {
         final res = await _http.send(http.Request('GET', Uri.parse(info.url))..headers.addAll(headers));
         final getStatus = res.statusCode;
@@ -168,7 +219,8 @@ class DownloadManager extends ChangeNotifier {
         ct = info.mime ?? res.headers['content-type'] ?? '';
         body = res.stream;
       }
-      final ext = ct.startsWith('video/') ? '.mp4' : ct.contains('webm') ? '.webm' : ct.contains('mpeg') ? '.mp3' : ct.contains('mp4') || ct.contains('m4a') ? '.m4a' : ct.contains('ogg') ? '.ogg' : ct.contains('flac') ? '.flac' : '.mp3';
+      final lowerCt = ct.toLowerCase();
+      final ext = lowerCt.contains('webm') ? '.webm' : lowerCt.startsWith('video/') ? '.mp4' : lowerCt.contains('mpeg') ? '.mp3' : lowerCt.contains('mp4') || lowerCt.contains('m4a') ? '.m4a' : lowerCt.contains('ogg') ? '.ogg' : lowerCt.contains('flac') ? '.flac' : '.mp3';
       final dir = Directory(p.join(downloadsDir, safeName(task.track.displayArtist)))..createSync(recursive: true);
       final finalPath = p.join(dir.path, '${safeName('${task.track.displayArtist} - ${task.track.title}')}$ext');
       tmp = File('$finalPath.part');
@@ -185,7 +237,7 @@ class DownloadManager extends ChangeNotifier {
       // A stream can end short without raising an error (dead range request,
       // dropped socket). Never promote that partial file to done: it would be
       // renamed into Documents and cataloged as a playable, broken track.
-      if (task.total > 0 && task.received < task.total) {
+      if (task.total > 0 && task.received != task.total) {
         throw Exception('Incomplete download (${task.received}/${task.total} bytes)');
       }
       await tmp.rename(finalPath);

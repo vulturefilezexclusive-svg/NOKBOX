@@ -72,6 +72,7 @@ class FakeAudioBackend implements AudioBackend {
   final _adv = StreamController<void>.broadcast();
   final _filterFailed = StreamController<void>.broadcast();
   final List<String> opened = [];
+  final List<bool> openedAsVideo = [];
   String lastFilter = '';
 
   /// Filter names this fake "mpv build" was not built with. A chain that
@@ -115,6 +116,7 @@ class FakeAudioBackend implements AudioBackend {
   Future<void> open(StreamInfo s, {Duration? start, bool play = true}) async {
     if (failUrls.contains(s.url)) throw Exception('stream failed: ${s.url}');
     opened.add(s.url);
+    openedAsVideo.add(s.isVideo);
     position = start ?? Duration.zero;
     playing = play;
     _playing.add(play);

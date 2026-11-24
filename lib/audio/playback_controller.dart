@@ -327,7 +327,7 @@ class PlaybackController extends ChangeNotifier {
   Future<void> toggleVideoMode() async {
     videoMode = !videoMode;
     final c = current;
-    if (c != null && !c.isLocal && c.isVideo) {
+    if (c != null && c.isVideo) {
       await _playIndex(queue.index, start: _position, autoplay: _playing);
     }
     notifyListeners();

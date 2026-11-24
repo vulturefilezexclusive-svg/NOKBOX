@@ -178,6 +178,7 @@ class MpvAudioBackend implements AudioBackend {
     // a UA get mpv's default back, so a YouTube client UA never leaks into
     // podcast / radio / archive requests (or local files, which need none).
     await setOption('user-agent', s.headers['User-Agent'] ?? 'libmpv');
+    await setOption('vid', s.isVideo ? 'auto' : 'no');
     await player.open(Playlist([_media(s, start: start)]), play: play);
     await _logPipeline();
   }
