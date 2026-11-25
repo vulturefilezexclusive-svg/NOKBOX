@@ -255,6 +255,51 @@ void main() {
     expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
   });
 
+  test('video mode survives source resolution and audio mode disables it', () async {
+    final registry = SourceRegistry(SettingsStore.memory(), providers: [_FakeProvider()]);
+    final track = Track(id: 'fake:video', uri: 'https://example.test/video', title: 'Video', source: 'fake', isVideo: true);
+    final video = await registry.resolve(track, video: true);
+    final audio = await registry.resolve(track, video: false);
+    final local = Track(id: 'local:/video.mp4', uri: '/video.mp4', title: 'Local video', isVideo: true);
+    expect(video.isVideo, isTrue);
+    expect(audio.isVideo, isFalse);
+    expect((await registry.resolve(local)).isVideo, isFalse);
+    expect((await registry.resolve(local, video: true)).isVideo, isTrue);
+    final backend = FakeAudioBackend();
+    await backend.open(video);
+    await backend.open(audio);
+    expect(backend.openedAsVideo, [true, false]);
+  });
+
+  test('chunked download rejects an incorrect Content-Range', () async {
+    final dir = Directory.systemTemp.createTempSync('nokbox-dl-invalid-range-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final manager = DownloadManager(
+      registry: SourceRegistry(SettingsStore.memory(), providers: [_ChunkedProvider()]),
+      downloadsDir: dir.path,
+      onFinished: () async {},
+      client: MockClient.streaming((request, _) async {
+        final range = request.headers.entries.where((e) => e.key.toLowerCase() == 'range').map((e) => e.value).firstOrNull;
+        if (range == 'bytes=0-0') {
+          return http.StreamedResponse(Stream<List<int>>.value([7]), 206, contentLength: 1, headers: {'content-range': 'bytes 0-0/1000'});
+        }
+        return http.StreamedResponse(Stream<List<int>>.value(List.filled(1000, 7)), 206, contentLength: 1000, headers: {'content-range': 'bytes 1-999/1000'});
+      }),
+    );
+    addTearDown(manager.dispose);
+    final track = Track(id: 'chunked:bad-range', uri: 'https://example.test/1.m4a', title: 'Song', artist: 'Artist', source: 'chunked');
+    await manager.request(track);
+    final task = manager.tasks.single;
+    for (var i = 0; i < 200; i++) {
+      if (task.status != DownloadStatus.running && task.status != DownloadStatus.queued) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(task.status, DownloadStatus.failed);
+    expect(task.error, contains('Invalid range response'));
+    expect(dir.listSync(recursive: true).whereType<File>(), isEmpty);
+  });
+
   test('a chunked download finishes when the server ignores Range', () async {
     final dir = Directory.systemTemp.createTempSync('nokbox-dl-range-');
     addTearDown(() => dir.deleteSync(recursive: true));
@@ -262,9 +307,8 @@ void main() {
       registry: SourceRegistry(SettingsStore.memory(), providers: [_ChunkedProvider()]),
       downloadsDir: dir.path,
       onFinished: () async {},
-      // Every request, including the byte-range ones, answers 200 with the
-      // whole body — the shape that used to loop forever (no content-range,
-      // so the total stayed 0 and the range walker never terminated).
+      // The probe is ignored and answered with the whole file. The downloader
+      // should consume that response instead of fetching the file again.
       client: MockClient.streaming((request, _) async => http.StreamedResponse(
             Stream.fromIterable([List.filled(1000, 7)]),
             200,
@@ -274,6 +318,34 @@ void main() {
     );
     addTearDown(manager.dispose);
     final track = Track(id: 'chunked:1', uri: 'https://example.test/1.m4a', title: 'Song', artist: 'Artist', source: 'chunked');
+    await manager.request(track);
+    final task = manager.tasks.single;
+    for (var i = 0; i < 200; i++) {
+      if (task.status != DownloadStatus.running && task.status != DownloadStatus.queued) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    expect(task.status, DownloadStatus.done);
+    expect(task.received, 1000);
+    expect(dir.listSync(recursive: true).whereType<File>(), hasLength(1));
+  });
+
+  test('a valid byte-range download completes with exact length', () async {
+    final dir = Directory.systemTemp.createTempSync('nokbox-dl-valid-range-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final manager = DownloadManager(
+      registry: SourceRegistry(SettingsStore.memory(), providers: [_ChunkedProvider()]),
+      downloadsDir: dir.path,
+      onFinished: () async {},
+      client: MockClient.streaming((request, _) async {
+        final range = request.headers.entries.where((e) => e.key.toLowerCase() == 'range').map((e) => e.value).firstOrNull;
+        if (range == 'bytes=0-0') {
+          return http.StreamedResponse(Stream<List<int>>.value([7]), 206, contentLength: 1, headers: {'content-range': 'bytes 0-0/1000'});
+        }
+        return http.StreamedResponse(Stream<List<int>>.value(List.filled(1000, 7)), 206, contentLength: 1000, headers: {'content-range': 'bytes 0-999/1000'});
+      }),
+    );
+    addTearDown(manager.dispose);
+    final track = Track(id: 'chunked:valid-range', uri: 'https://example.test/1.m4a', title: 'Song', artist: 'Artist', source: 'chunked');
     await manager.request(track);
     final task = manager.tasks.single;
     for (var i = 0; i < 200; i++) {

@@ -115,10 +115,13 @@ class SourceRegistry extends ChangeNotifier {
   }
 
   Future<StreamInfo> resolve(Track t, {bool video = false}) async {
-    if (t.isLocal) return StreamInfo(t.uri, isVideo: t.isVideo);
+    if (t.isLocal) return StreamInfo(t.uri, isVideo: video && t.isVideo);
     final p = providerFor(t);
     if (p == null) throw StateError('No provider for ${t.source}');
-    return p.resolveStream(t, video: video);
+    final info = await p.resolveStream(t, video: video);
+    // Providers may use the mode to select a different rendition, but the
+    // backend still needs the explicit mode to enable/disable video output.
+    return StreamInfo(info.url, headers: info.headers, isVideo: video && t.isVideo, expiresAt: info.expiresAt, mime: info.mime);
   }
 
   DownloadCapability capability(Track t) {
